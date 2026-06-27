@@ -1,4 +1,6 @@
+import asyncio
 import json
+import logging
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -16,6 +18,8 @@ from .settings import Settings, get_settings
 from .time_utils import app_now
 
 app = FastAPI(title="Gut Check API")
+logger = logging.getLogger(__name__)
+_background_parse_tasks: set[asyncio.Task[None]] = set()
 
 
 class LoginRequest(BaseModel):
@@ -142,6 +146,8 @@ async def _parse_and_store(conn, log: dict[str, Any], settings: Settings) -> dic
         settings.ollama_url,
         settings.ollama_model,
         settings.ollama_num_ctx,
+        settings.ollama_num_predict,
+        settings.ollama_timeout_seconds,
     )
 
     conn.execute("DELETE FROM follow_up_questions WHERE raw_log_id = ?", (log["id"],))
@@ -154,6 +160,37 @@ async def _parse_and_store(conn, log: dict[str, Any], settings: Settings) -> dic
     public["new_events"] = events
     public["new_followups"] = []
     return public
+
+
+async def _parse_log_in_background(log_id: int, settings: Settings) -> None:
+    conn = connect(settings.database_path)
+    try:
+        log = fetchone_dict(conn, "SELECT * FROM raw_logs WHERE id = ?", (log_id,))
+        if not log or log["parser_status"] != "pending":
+            return
+        await _parse_and_store(conn, log, settings)
+    except Exception as exc:
+        logger.exception("Background parse failed for raw log %s", log_id)
+        conn.rollback()
+        conn.execute(
+            """
+            UPDATE raw_logs
+            SET parser_status = 'failed',
+                parser_error = ?
+            WHERE id = ?
+              AND parser_status = 'pending'
+            """,
+            (f"Background parse failed: {exc.__class__.__name__}", log_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _schedule_parse(log_id: int, settings: Settings) -> None:
+    task = asyncio.create_task(_parse_log_in_background(log_id, settings))
+    _background_parse_tasks.add(task)
+    task.add_done_callback(_background_parse_tasks.discard)
 
 
 @app.get("/api/health")
@@ -207,8 +244,11 @@ async def create_log(
     )
     log_id = cursor.lastrowid
     conn.commit()
-    log = fetchone_dict(conn, "SELECT * FROM raw_logs WHERE id = ?", (log_id,))
-    return await _parse_and_store(conn, log, settings)
+    _schedule_parse(log_id, settings)
+    public = _public_log(conn, log_id)
+    public["new_events"] = []
+    public["new_followups"] = []
+    return public
 
 
 @app.get("/api/logs/recent")

@@ -242,7 +242,8 @@ function DumpView({ refreshKey }: { refreshKey: () => void }) {
             <Badge>{result.entry_classification}</Badge>
             <Badge tone={result.parser_status === "parsed" ? "good" : "warn"}>{result.parser_status}</Badge>
           </div>
-          {result.parser_status !== "parsed" && <p className="warning">Saved raw entry. The model did not return structured events for this one.</p>}
+          {result.parser_status === "pending" && <p className="warning">Saved raw entry. AI parsing will continue in the background.</p>}
+          {result.parser_status === "failed" && <p className="warning">Saved raw entry. The model did not return structured events for this one.</p>}
           {(result.events || result.new_events || []).map((item) => <EventCard key={item.id} item={item} />)}
         </section>
       )}

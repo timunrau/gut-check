@@ -1,5 +1,7 @@
 import json
+import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -7,6 +9,8 @@ import httpx
 
 from .classifier import classify_text, normalize_classification
 from .time_utils import parse_date_offset
+
+logger = logging.getLogger(__name__)
 
 VALID_EVENT_TYPES = {"meal", "bowel_movement", "symptom", "context"}
 LIST_FIELDS = ("foods", "drinks", "meds", "supplements")
@@ -71,23 +75,24 @@ meal, bowel_movement, symptom, context, mixed, unknown.
 
 Rules:
 * Return JSON only.
+* Keep the JSON compact.
 * Correct obvious spelling and dictation errors in structured fields.
 * Do not invent facts.
 * Do not assume meals caused symptoms.
 * Do not assume symptoms are related to meals.
 * If time is missing, return null. The backend will use logged time.
-* Use null for unknown values.
+* Omit optional fields when unknown.
 * Bristol must be 1-7 or null.
 * Severity values must be 1-5 or null.
 * Keep foods, drinks, meds, and supplements as clean lowercase names, without quantities or filler words.
 * Put beverages in drinks, not foods.
 * Do not give medical advice.
-* Return only one JSON object matching the requested shape.
+* Return only one JSON object.
 """
 
 
 def build_prompt(raw_text: str) -> str:
-    return f"""Parse this voice note into clean structured JSON.
+    return f"""Parse this voice note into compact structured JSON.
 
 Example:
 Voice note: I at half cup of all bran buds, a bannana, and a cup of milk
@@ -102,58 +107,43 @@ JSON:
       "date_offset": 0,
       "foods": ["all bran buds", "banana"],
       "drinks": ["milk"],
-      "meds": [],
-      "supplements": [],
       "portion": null,
-      "bristol": null,
-      "urgency": null,
-      "pain": null,
-      "bloating": null,
-      "gas": null,
-      "stress": null,
-      "sleep_hours": null,
-      "symptoms": [],
-      "context": {{}},
-      "notes": null,
       "confidence": 0.8
     }}
   ]
 }}
 
-Return:
+Return this shape:
 {{
-  "entry_classification": "...",
-  "classification_confidence": 0.0,
+  "entry_classification": "meal|bowel_movement|symptom|context|mixed|unknown",
+  "classification_confidence": 0.0-1.0,
   "events": [
     {{
-      "type": "meal | bowel_movement | symptom | context",
-      "time": "HH:MM or null",
+      "type": "meal|bowel_movement|symptom|context",
+      "time": "HH:MM or null if missing",
       "date_offset": 0,
-      "foods": [],
-      "drinks": [],
-      "meds": [],
-      "supplements": [],
-      "portion": null,
-      "bristol": null,
-      "urgency": null,
-      "pain": null,
-      "bloating": null,
-      "gas": null,
-      "stress": null,
-      "sleep_hours": null,
-      "symptoms": [],
-      "context": {{}},
-      "notes": null,
-      "confidence": 0.7
+      "confidence": 0.0-1.0,
+      "...": "only relevant optional fields"
     }}
   ]
 }}
+
+Optional event fields:
+foods, drinks, meds, supplements, portion, bristol, urgency, pain, bloating, gas,
+stress, sleep_hours, symptoms, context, notes.
 
 Voice note:
 {raw_text}"""
 
 
-async def call_ollama(raw_text: str, ollama_url: str, model: str, num_ctx: int) -> dict[str, Any]:
+async def call_ollama(
+    raw_text: str,
+    ollama_url: str,
+    model: str,
+    num_ctx: int,
+    num_predict: int,
+    timeout_seconds: float,
+) -> dict[str, Any]:
     payload = {
         "model": model,
         "messages": [
@@ -162,9 +152,10 @@ async def call_ollama(raw_text: str, ollama_url: str, model: str, num_ctx: int) 
         ],
         "format": "json",
         "stream": False,
-        "options": {"temperature": 0, "num_ctx": num_ctx},
+        "think": False,
+        "options": {"temperature": 0, "num_ctx": num_ctx, "num_predict": num_predict},
     }
-    async with httpx.AsyncClient(timeout=300.0) as client:
+    async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         response = await client.post(f"{ollama_url}/api/chat", json=payload)
         response.raise_for_status()
     data = response.json()
@@ -458,9 +449,32 @@ def fallback_parse_result(raw_text: str, logged_at, error: str) -> ParseResult:
     )
 
 
-async def parse_entry(raw_text: str, logged_at, ollama_url: str, model: str, num_ctx: int = 4096) -> ParseResult:
+async def parse_entry(
+    raw_text: str,
+    logged_at,
+    ollama_url: str,
+    model: str,
+    num_ctx: int = 4096,
+    num_predict: int = 256,
+    timeout_seconds: float = 60.0,
+) -> ParseResult:
+    started_at = time.monotonic()
     try:
-        model_json = await call_ollama(raw_text, ollama_url, model, num_ctx)
-        return validate_model_output(raw_text, model_json, logged_at)
+        model_json = await call_ollama(raw_text, ollama_url, model, num_ctx, num_predict, timeout_seconds)
+        result = validate_model_output(raw_text, model_json, logged_at)
+        logger.info(
+            "ollama_parse_complete model=%s status=%s elapsed=%.2fs events=%s",
+            model,
+            result.status,
+            time.monotonic() - started_at,
+            len(result.events),
+        )
+        return result
     except (ParserError, httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
+        logger.warning(
+            "ollama_parse_fallback model=%s elapsed=%.2fs error=%s",
+            model,
+            time.monotonic() - started_at,
+            str(exc) or exc.__class__.__name__,
+        )
         return fallback_parse_result(raw_text, logged_at, str(exc) or exc.__class__.__name__)

@@ -20,21 +20,20 @@ SESSION_SECRET=a-long-random-string
 APP_TIMEZONE=America/Winnipeg
 ```
 
-The default parser model is `gemma4:e4b`. It is a better fit than the old
-`qwen2.5:1.5b` default for cleaning messy voice-note style entries into
-structured JSON, while still being realistic for a 16GB RAM host that runs
-other Docker apps. If the host starts swapping or other containers suffer,
-use `qwen3:4b` instead:
+The default parser model is `qwen3:4b`. It is a safer default for Docker
+Desktop and shared hosts than larger models that can be killed while loading.
+If the host has enough memory headroom and parse quality needs improvement,
+try `gemma4:e4b` explicitly:
 
 ```bash
-OLLAMA_MODEL=qwen3:4b
+OLLAMA_MODEL=gemma4:e4b
 ```
 
 Start Ollama and pull the default model once:
 
 ```bash
 docker compose up -d ollama
-docker compose exec ollama ollama pull gemma4:e4b
+docker compose exec ollama ollama pull qwen3:4b
 ```
 
 Run the app:
@@ -70,7 +69,7 @@ The dev frontend proxies `/api` to the API container. FastAPI runs with reload, 
 Pull the Ollama model once if you have not already:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml exec ollama ollama pull gemma4:e4b
+docker compose -f docker-compose.yml -f docker-compose.dev.yml exec ollama ollama pull qwen3:4b
 ```
 
 Stop dev containers:
@@ -83,12 +82,12 @@ Local Python/Node setup is optional. Use it only if you need to debug outside Do
 
 ## Useful Commands
 
-Try the lighter fallback model on a busy host:
+Try the heavier model only if the host has memory headroom:
 
 ```bash
 docker compose up -d ollama
-docker compose exec ollama ollama pull qwen3:4b
-OLLAMA_MODEL=qwen3:4b docker compose up --build
+docker compose exec ollama ollama pull gemma4:e4b
+OLLAMA_MODEL=gemma4:e4b docker compose up --build
 ```
 
 Build frontend:
@@ -119,17 +118,25 @@ The SQLite database is stored at:
 ```
 
 Raw entries are saved before parsing, so Ollama failures should not prevent capture.
+The dump page returns after the raw entry is committed, then the API continues
+AI parsing in the background. It is safe to close the browser/PWA after the
+saved pending entry appears. Stopping the backend or Docker stack will interrupt
+in-progress parsing, but the raw entry remains saved and can be reparsed from
+Logs.
 
 ## Model Notes
 
 Parsing is designed to run locally through Ollama. The app saves raw text first,
-then asks the model to classify and clean the entry into structured JSON.
+then asks the model in the API process to classify and clean the entry into
+structured JSON.
 
 Default resource guardrails:
 
 ```text
-OLLAMA_MODEL=gemma4:e4b
+OLLAMA_MODEL=qwen3:4b
 OLLAMA_NUM_CTX=4096
+OLLAMA_NUM_PREDICT=256
+OLLAMA_TIMEOUT_SECONDS=60
 OLLAMA_KEEP_ALIVE=5m
 OLLAMA_MAX_LOADED_MODELS=1
 OLLAMA_NUM_PARALLEL=1
@@ -137,4 +144,4 @@ OLLAMA_NUM_PARALLEL=1
 
 These settings keep parsing conservative on a shared Docker host. If parse
 quality is poor and the host has headroom, test a larger model manually before
-making it the default. If memory pressure is visible, downgrade to `qwen3:4b`.
+making it the default.
