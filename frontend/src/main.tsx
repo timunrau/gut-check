@@ -65,6 +65,15 @@ type DayResponse = {
   garmin: GarminMetric | null;
 };
 
+type GarminAverages = {
+  avg_steps: number | null;
+  avg_sleep_hours: number | null;
+  avg_sleep_score: number | null;
+  avg_stress: number | null;
+  avg_body_battery: number | null;
+  days_with_data: number;
+};
+
 type WeekResponse = {
   start_date: string;
   end_date: string;
@@ -77,14 +86,7 @@ type WeekResponse = {
   note: string;
   garmin: {
     days: GarminMetric[];
-    averages: {
-      avg_steps: number | null;
-      avg_sleep_hours: number | null;
-      avg_sleep_score: number | null;
-      avg_stress: number | null;
-      avg_body_battery: number | null;
-      days_with_data: number;
-    };
+    averages: GarminAverages;
   };
 };
 
@@ -121,6 +123,11 @@ type PatternsResponse = {
     baseline_bad_rate: number;
   };
   candidate_triggers: TriggerCandidate[];
+  events: EventItem[];
+  garmin: {
+    days: GarminMetric[];
+    averages: GarminAverages;
+  };
   summary: string;
   note: string;
 };
@@ -310,6 +317,82 @@ function GarminMetricStrip({ metric }: { metric: GarminMetric | null | undefined
         <p>Body battery low/high</p>
       </div>
     </section>
+  );
+}
+
+async function copyTextToClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textarea);
+  if (!copied) throw new Error("Clipboard copy failed");
+}
+
+function cleanForExport(value: any): any {
+  if (value === null || value === undefined || value === "") return undefined;
+  if (Array.isArray(value)) {
+    const items = value.map(cleanForExport).filter((item) => item !== undefined);
+    return items.length ? items : undefined;
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value)
+      .map(([key, item]) => [key, cleanForExport(item)] as const)
+      .filter(([, item]) => item !== undefined);
+    return entries.length ? Object.fromEntries(entries) : undefined;
+  }
+  return value;
+}
+
+function cleanObjectArrayForExport<T>(items: T[]): any[] {
+  return items.map((item) => cleanForExport(item)).filter((item) => item !== undefined);
+}
+
+function cleanEventForExport(event: EventItem): Record<string, any> {
+  return cleanForExport({
+    date: event.event_date,
+    time: event.event_time,
+    type: event.event_type,
+    notes: event.notes,
+    data: event.data
+  }) || {};
+}
+
+function buildPatternsExport(patterns: PatternsResponse): string {
+  return JSON.stringify(
+    {
+      source: "Gut Check",
+      export_type: "patterns_period",
+      exported_at: new Date().toISOString(),
+      selected_period: {
+        days: patterns.days,
+        start_date: patterns.start_date,
+        end_date: patterns.end_date
+      },
+      pattern_analysis: {
+        counts: patterns.counts,
+        summary: patterns.summary,
+        note: patterns.note,
+        candidate_triggers: cleanObjectArrayForExport(patterns.candidate_triggers)
+      },
+      cleaned_events: patterns.events.map(cleanEventForExport),
+      garmin: {
+        days: cleanObjectArrayForExport(patterns.garmin.days),
+        averages: cleanForExport(patterns.garmin.averages) || {}
+      }
+    },
+    null,
+    2
   );
 }
 
@@ -687,22 +770,41 @@ function WeekView({ refreshToken }: { refreshToken: number }) {
 function PatternsView({ refreshToken }: { refreshToken: number }) {
   const [days, setDays] = useState(60);
   const [patterns, setPatterns] = useState<PatternsResponse | null>(null);
+  const [copyStatus, setCopyStatus] = useState("");
 
   useEffect(() => {
+    setCopyStatus("");
     apiFetch<PatternsResponse>(`/api/patterns?days=${days}`).then(setPatterns);
   }, [days, refreshToken]);
+
+  async function copyPeriodData() {
+    if (!patterns) return;
+    setCopyStatus("Copying...");
+    try {
+      await copyTextToClipboard(buildPatternsExport(patterns));
+      setCopyStatus(`Copied ${patterns.events.length} cleaned events and ${patterns.garmin.days.length} Garmin days.`);
+    } catch (err) {
+      setCopyStatus(err instanceof Error ? err.message : "Could not copy data.");
+    }
+  }
 
   return (
     <main className="screen">
       <div className="top-row">
         <h1>Patterns</h1>
-        <select id="pattern-days" name="pattern-days" value={days} onChange={(event) => setDays(Number(event.target.value))}>
-          <option value={30}>30 days</option>
-          <option value={60}>60 days</option>
-          <option value={90}>90 days</option>
-          <option value={180}>180 days</option>
-        </select>
+        <div className="pattern-actions">
+          <select id="pattern-days" name="pattern-days" value={days} onChange={(event) => setDays(Number(event.target.value))}>
+            <option value={30}>30 days</option>
+            <option value={60}>60 days</option>
+            <option value={90}>90 days</option>
+            <option value={180}>180 days</option>
+          </select>
+          <button className="ghost small" type="button" disabled={!patterns || copyStatus === "Copying..."} onClick={copyPeriodData}>
+            {copyStatus === "Copying..." ? "Copying..." : "Copy data"}
+          </button>
+        </div>
       </div>
+      {copyStatus && copyStatus !== "Copying..." && <p className={copyStatus.startsWith("Copied") ? "muted" : "error"}>{copyStatus}</p>}
       <section className="stack">
         <article className="card log-card">
           <div className="status-line">

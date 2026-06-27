@@ -695,6 +695,12 @@ def trigger_patterns(
         (start.isoformat(), end.isoformat()),
     )
     payload = analyze_trigger_patterns(events, bounded_days)
+    garmin_rows = garmin.metrics_between(conn, start.isoformat(), end.isoformat())
     payload["start_date"] = start.isoformat()
     payload["end_date"] = end.isoformat()
+    payload["events"] = events
+    payload["garmin"] = {
+        "days": garmin_rows,
+        "averages": garmin.summarize_metrics(garmin_rows),
+    }
     return payload

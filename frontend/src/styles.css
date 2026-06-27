@@ -181,6 +181,16 @@ p {
   max-width: 145px;
 }
 
+.pattern-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pattern-actions button {
+  white-space: nowrap;
+}
+
 .evidence-list {
   display: grid;
   gap: 0.35rem;
@@ -479,6 +489,14 @@ p {
   }
 
   .top-row input {
+    max-width: none;
+  }
+
+  .pattern-actions {
+    width: 100%;
+  }
+
+  .pattern-actions select {
     max-width: none;
   }
 }
