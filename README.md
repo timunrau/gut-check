@@ -133,3 +133,7 @@ OLLAMA_NUM_PARALLEL=1
 These settings keep parsing conservative on a shared Docker host. If parse
 quality is poor and the host has headroom, test a larger model manually before
 making it the default.
+
+## License
+
+MIT-0. See [LICENSE](LICENSE).
