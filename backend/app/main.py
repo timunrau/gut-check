@@ -12,10 +12,11 @@ from pydantic import BaseModel
 from .auth import COOKIE_NAME, clear_session_cookie, is_valid_session, set_session_cookie
 from .classifier import classify_text
 from .db import connect, fetchall_dict, fetchone_dict, init_db, row_to_dict
-from .followups import answer_followup, skip_followup
+from .followups import answer_followup, create_followups, skip_followup
 from .parser import ParseResult, parse_entry
 from .settings import Settings, get_settings
 from .time_utils import app_now
+from .triggers import analyze_trigger_patterns
 
 app = FastAPI(title="Gut Check API")
 logger = logging.getLogger(__name__)
@@ -154,11 +155,19 @@ async def _parse_and_store(conn, log: dict[str, Any], settings: Settings) -> dic
     conn.execute("DELETE FROM events WHERE raw_log_id = ?", (log["id"],))
     _update_log_after_parse(conn, log["id"], parse_result, settings.ollama_model)
     events = _insert_events(conn, log["id"], parse_result)
+    followups = create_followups(
+        conn,
+        log["id"],
+        log["raw_text"],
+        events,
+        parse_result.classification,
+        app_now(settings.app_timezone).isoformat(),
+    )
     conn.commit()
 
     public = _public_log(conn, log["id"])
     public["new_events"] = events
-    public["new_followups"] = []
+    public["new_followups"] = followups
     return public
 
 
@@ -440,3 +449,28 @@ def week_summary(start_date: str, conn=Depends(get_conn), _auth: None = Depends(
         "possible_repeated_foods_or_drinks": repeated,
         "note": "insufficient data" if not repeated else "worth watching only; not confirmed and not causal",
     }
+
+
+@app.get("/api/patterns")
+def trigger_patterns(
+    days: int = 60,
+    conn=Depends(get_conn),
+    settings: Settings = Depends(settings_dep),
+    _auth: None = Depends(protected),
+) -> dict[str, Any]:
+    bounded_days = max(7, min(days, 180))
+    end = app_now(settings.app_timezone).date()
+    start = end - timedelta(days=bounded_days - 1)
+    events = fetchall_dict(
+        conn,
+        """
+        SELECT * FROM events
+        WHERE event_date BETWEEN ? AND ?
+        ORDER BY event_date, event_time, id
+        """,
+        (start.isoformat(), end.isoformat()),
+    )
+    payload = analyze_trigger_patterns(events, bounded_days)
+    payload["start_date"] = start.isoformat()
+    payload["end_date"] = end.isoformat()
+    return payload

@@ -15,6 +15,48 @@ logger = logging.getLogger(__name__)
 VALID_EVENT_TYPES = {"meal", "bowel_movement", "symptom", "context"}
 LIST_FIELDS = ("foods", "drinks", "meds", "supplements")
 SEVERITY_FIELDS = ("urgency", "pain", "bloating", "gas", "stress")
+PAIN_LOCATIONS = {
+    "stomach": "stomach",
+    "upper_stomach": "stomach",
+    "upper abdomen": "stomach",
+    "upper_abdomen": "stomach",
+    "gut": "lower_stomach",
+    "lower gut": "lower_stomach",
+    "lower_gut": "lower_stomach",
+    "lower stomach": "lower_stomach",
+    "lower_stomach": "lower_stomach",
+    "lower abdomen": "lower_stomach",
+    "lower_abdomen": "lower_stomach",
+    "lower abdominal": "lower_stomach",
+    "abdomen": "abdomen",
+    "abdominal": "abdomen",
+}
+MODEL_EVENT_FIELDS = {
+    "type",
+    "time",
+    "date_offset",
+    "confidence",
+    "foods",
+    "drinks",
+    "meds",
+    "supplements",
+    "portion",
+    "bristol",
+    "urgency",
+    "pain",
+    "bloating",
+    "gas",
+    "stress",
+    "sleep_hours",
+    "stool_form",
+    "amount",
+    "odor",
+    "symptoms",
+    "pain_location",
+    "pain_locations",
+    "context",
+    "notes",
+}
 KNOWN_DRINKS = {
     "coffee",
     "tea",
@@ -41,6 +83,37 @@ MEAL_QUANTITY_PATTERN = re.compile(
     r"\b(?:\s+of\b)?",
     re.IGNORECASE,
 )
+BRISTOL_LABELS = {
+    1: "separate hard lumps",
+    2: "lumpy sausage",
+    3: "cracked sausage",
+    4: "smooth soft sausage",
+    5: "soft blobs",
+    6: "mushy loose stool",
+    7: "watery stool",
+}
+BOWEL_FORM_PATTERNS = (
+    (re.compile(r"\b(?:watery|water|liquid|diarrhea|diarrhoea)\b", re.IGNORECASE), 7, "watery"),
+    (re.compile(r"\b(?:loose|mushy|sloppy|runny)\b", re.IGNORECASE), 6, "loose/mushy"),
+    (re.compile(r"\b(?:soft|small chunks?|chunks?|chunky|pieces?)\b", re.IGNORECASE), 5, "soft pieces"),
+    (re.compile(r"\b(?:smooth|normal|formed)\b", re.IGNORECASE), 4, "formed"),
+    (re.compile(r"\b(?:cracked)\b", re.IGNORECASE), 3, "cracked"),
+    (re.compile(r"\b(?:hard|rock|pellets?|rabbit)\b", re.IGNORECASE), 1, "hard lumps"),
+    (re.compile(r"\b(?:lumpy|girthy|large)\b", re.IGNORECASE), 2, "lumpy/large"),
+)
+AMOUNT_PATTERNS = (
+    (re.compile(r"\b(?:tiny amount|small amount|little bit)\b", re.IGNORECASE), "small"),
+    (re.compile(r"\b(?:medium|moderate|normal amount)\b", re.IGNORECASE), "medium"),
+    (re.compile(r"\b(?:large amount|big|huge|massive|a lot)\b", re.IGNORECASE), "large"),
+)
+ODOR_PATTERN = re.compile(r"\b(?:stinky|smelly|foul|strong smell|bad smell)\b", re.IGNORECASE)
+PAIN_TEXT_PATTERN = re.compile(r"\b(?:hurt|hurts|hurting|pain|ache|aches|aching|cramp|cramps|cramping)\b", re.IGNORECASE)
+STOMACH_LOCATION_PATTERN = re.compile(r"\b(?:stomach|upper stomach|upper abdomen|upper abdominal)\b", re.IGNORECASE)
+LOWER_STOMACH_LOCATION_PATTERN = re.compile(
+    r"\b(?:gut|lower gut|lower stomach|lower abdomen|lower abdominal|intestines?|intestinal)\b",
+    re.IGNORECASE,
+)
+SMALL_SEVERITY_PATTERN = re.compile(r"\b(?:tiny|small|little|mild)\b", re.IGNORECASE)
 
 
 class ParserError(Exception):
@@ -86,6 +159,10 @@ Rules:
 * Severity values must be 1-5 or null.
 * Keep foods, drinks, meds, and supplements as clean lowercase names, without quantities or filler words.
 * Put beverages in drinks, not foods.
+* Add a short summary explaining what you understood from the entry.
+* If useful text does not fit a structured field, put it in notes instead of dropping it.
+* For pain symptoms, return symptoms as objects with name, location, and severity when known.
+* Use location "stomach" for stomach/upper-stomach pain and "lower_stomach" for gut/lower-stomach/lower-abdomen pain.
 * Do not give medical advice.
 * Return only one JSON object.
 """
@@ -100,6 +177,7 @@ JSON:
 {{
   "entry_classification": "meal",
   "classification_confidence": 0.9,
+  "summary": "meal with all bran buds, banana, and milk",
   "events": [
     {{
       "type": "meal",
@@ -117,6 +195,7 @@ Return this shape:
 {{
   "entry_classification": "meal|bowel_movement|symptom|context|mixed|unknown",
   "classification_confidence": 0.0-1.0,
+  "summary": "one short plain-language interpretation",
   "events": [
     {{
       "type": "meal|bowel_movement|symptom|context",
@@ -130,7 +209,8 @@ Return this shape:
 
 Optional event fields:
 foods, drinks, meds, supplements, portion, bristol, urgency, pain, bloating, gas,
-stress, sleep_hours, symptoms, context, notes.
+stress, sleep_hours, symptoms, pain_location, pain_locations, context, stool_form,
+amount, odor, notes.
 
 Voice note:
 {raw_text}"""
@@ -189,6 +269,21 @@ def _none_if_empty(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: _none_if_empty(item) for key, item in value.items()}
     return value
+
+
+def _safe_model_value(value: Any) -> Any:
+    cleaned = _none_if_empty(value)
+    if cleaned is None:
+        return None
+    if isinstance(cleaned, (str, int, float, bool)):
+        return cleaned
+    if isinstance(cleaned, list):
+        values = [_safe_model_value(item) for item in cleaned]
+        return [item for item in values if item is not None]
+    if isinstance(cleaned, dict):
+        values = {str(key): _safe_model_value(item) for key, item in cleaned.items()}
+        return {key: item for key, item in values.items() if item is not None}
+    return str(cleaned)
 
 
 def _correct_typos(text: str) -> str:
@@ -269,6 +364,31 @@ def _event_time(value: Any, logged_at) -> tuple[str, bool]:
     return logged_at.strftime("%H:%M"), True
 
 
+def _normalize_symptom_location(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = _normalize_text_field(value)
+    if not cleaned:
+        return None
+    return PAIN_LOCATIONS.get(cleaned, cleaned)
+
+
+def _pain_severity_from_text(value: str) -> int | None:
+    if SMALL_SEVERITY_PATTERN.search(value):
+        return 1
+    return None
+
+
+def _symptom_display_name(location: str | None, fallback: str = "pain") -> str:
+    if location == "stomach":
+        return "stomach pain"
+    if location == "lower_stomach":
+        return "lower stomach pain"
+    if location == "abdomen":
+        return "abdominal pain"
+    return fallback
+
+
 def _normalize_symptoms(value: Any) -> list[dict[str, Any]]:
     normalized = []
     if not isinstance(value, list):
@@ -277,23 +397,126 @@ def _normalize_symptoms(value: Any) -> list[dict[str, Any]]:
         if isinstance(item, str):
             name = _normalize_name(item)
             if name:
-                normalized.append({"name": name, "severity": None})
+                symptom = {"name": name, "severity": None}
+                location = _infer_location_from_text(name)
+                if location:
+                    symptom["location"] = location
+                normalized.append(symptom)
         elif isinstance(item, dict):
             name = item.get("name")
+            location = _normalize_symptom_location(item.get("location") or item.get("area"))
             if isinstance(name, str) and name.strip():
                 normalized_name = _normalize_name(name)
                 if not normalized_name:
                     continue
-                normalized.append(
-                    {
-                        "name": normalized_name,
-                        "severity": _clamp_number(item.get("severity"), 1, 5),
-                    }
-                )
+                if location is None:
+                    location = _infer_location_from_text(normalized_name)
+                if location and normalized_name in {"pain", "hurt", "hurts", "ache", "aches", "cramp", "cramps"}:
+                    normalized_name = _symptom_display_name(location)
+                symptom = {
+                    "name": normalized_name,
+                    "severity": _clamp_number(item.get("severity"), 1, 5),
+                }
+                if location:
+                    symptom["location"] = location
+                normalized.append(symptom)
     return normalized
 
 
+def _infer_location_from_text(value: str) -> str | None:
+    if LOWER_STOMACH_LOCATION_PATTERN.search(value):
+        return "lower_stomach"
+    if STOMACH_LOCATION_PATTERN.search(value):
+        return "stomach"
+    return None
+
+
+def _add_symptom(
+    symptoms: list[dict[str, Any]],
+    name: str,
+    severity: int | None = None,
+    location: str | None = None,
+) -> None:
+    normalized_name = _normalize_name(name)
+    if not normalized_name:
+        return
+    normalized_location = location or _infer_location_from_text(normalized_name)
+    if any(
+        (
+            symptom.get("name") == normalized_name
+            or (
+                normalized_location is not None
+                and symptom.get("location") == normalized_location
+                and "pain" in str(symptom.get("name") or "")
+                and "pain" in normalized_name
+            )
+        )
+        and symptom.get("location") == normalized_location
+        for symptom in symptoms
+    ):
+        return
+    symptom = {"name": normalized_name, "severity": severity}
+    if normalized_location:
+        symptom["location"] = normalized_location
+    symptoms.append(symptom)
+
+
+def _symptom_name_from_text_field(value: Any, label: str) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = _normalize_text_field(value)
+    if not cleaned:
+        return None
+    if label in cleaned or PAIN_TEXT_PATTERN.search(cleaned):
+        return cleaned
+    return f"{cleaned} {label}"
+
+
+def _pain_locations_from_event(raw_event: dict[str, Any]) -> list[str]:
+    values = raw_event.get("pain_locations")
+    if values is None:
+        values = raw_event.get("pain_location")
+    if not isinstance(values, list):
+        values = [values]
+    locations = []
+    for value in values:
+        location = _normalize_symptom_location(value)
+        if location and location not in locations:
+            locations.append(location)
+    return locations
+
+
+def _pain_locations_from_text(raw_text: str) -> list[str]:
+    if not PAIN_TEXT_PATTERN.search(raw_text):
+        return []
+    locations = []
+    if STOMACH_LOCATION_PATTERN.search(raw_text):
+        locations.append("stomach")
+    if LOWER_STOMACH_LOCATION_PATTERN.search(raw_text):
+        locations.append("lower_stomach")
+    return locations
+
+
+def _enrich_symptom(raw_text: str, raw_event: dict[str, Any], data: dict[str, Any]) -> None:
+    symptoms = data.get("symptoms") or []
+    pain_name = _symptom_name_from_text_field(raw_event.get("pain"), "pain")
+    raw_severity = _pain_severity_from_text(raw_text)
+    event_locations = _pain_locations_from_event(raw_event)
+    text_locations = _pain_locations_from_text(raw_text)
+    locations = event_locations or text_locations
+    if pain_name and not locations:
+        _add_symptom(symptoms, pain_name, raw_severity)
+    for location in locations:
+        _add_symptom(symptoms, _symptom_display_name(location, pain_name or "pain"), raw_severity, location)
+    if not symptoms and PAIN_TEXT_PATTERN.search(raw_text):
+        _add_symptom(symptoms, raw_text, raw_severity)
+    data["symptoms"] = symptoms
+
+
 def _normalize_context(value: Any) -> dict[str, Any]:
+    if isinstance(value, str):
+        note = _normalize_text_field(value)
+        return {"note": note} if note else {}
     if not isinstance(value, dict):
         return {}
     return {
@@ -301,6 +524,25 @@ def _normalize_context(value: Any) -> dict[str, Any]:
         for key, item in value.items()
         if _none_if_empty(item) is not None
     }
+
+
+def _model_extra(raw_event: dict[str, Any]) -> dict[str, Any]:
+    extra: dict[str, Any] = {}
+    for key, value in raw_event.items():
+        normalized_key = str(key).strip().lower()
+        if not normalized_key or normalized_key in MODEL_EVENT_FIELDS:
+            continue
+        cleaned = _safe_model_value(value)
+        if cleaned is not None and cleaned != [] and cleaned != {}:
+            extra[normalized_key] = cleaned
+    return extra
+
+
+def _normalize_text_field(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = re.sub(r"\s+", " ", value.strip().lower())
+    return cleaned.strip(" .,") or None
 
 
 def _empty_event_data() -> dict[str, Any]:
@@ -317,6 +559,9 @@ def _empty_event_data() -> dict[str, Any]:
         "gas": None,
         "stress": None,
         "sleep_hours": None,
+        "stool_form": None,
+        "amount": None,
+        "odor": None,
         "symptoms": [],
         "context": {},
     }
@@ -352,6 +597,58 @@ def _heuristic_meal_event(raw_text: str, logged_at) -> ParsedEvent:
     )
 
 
+def _bowel_details_from_text(raw_text: str) -> dict[str, Any]:
+    details: dict[str, Any] = {}
+    for pattern, bristol, label in BOWEL_FORM_PATTERNS:
+        if pattern.search(raw_text):
+            details["bristol"] = bristol
+            details["stool_form"] = label
+            details["bristol_description"] = BRISTOL_LABELS[bristol]
+            break
+    for pattern, amount in AMOUNT_PATTERNS:
+        if pattern.search(raw_text):
+            details["amount"] = amount
+            break
+    if ODOR_PATTERN.search(raw_text):
+        details["odor"] = "strong"
+    return details
+
+
+def _enrich_bowel_movement(raw_text: str, data: dict[str, Any]) -> None:
+    inferred = _bowel_details_from_text(raw_text)
+    for key, value in inferred.items():
+        if data.get(key) is None:
+            data[key] = value
+
+
+def _heuristic_bowel_event(raw_text: str, logged_at) -> ParsedEvent:
+    data = _empty_event_data()
+    _enrich_bowel_movement(raw_text, data)
+    return ParsedEvent(
+        event_type="bowel_movement",
+        event_date=logged_at.date().isoformat(),
+        event_time=logged_at.strftime("%H:%M"),
+        time_was_defaulted=True,
+        notes=None if data.get("stool_form") else raw_text,
+        confidence=0.45 if data.get("stool_form") else 0.35,
+        data=data,
+    )
+
+
+def _heuristic_symptom_event(raw_text: str, logged_at) -> ParsedEvent:
+    data = _empty_event_data()
+    _enrich_symptom(raw_text, {}, data)
+    return ParsedEvent(
+        event_type="symptom",
+        event_date=logged_at.date().isoformat(),
+        event_time=logged_at.strftime("%H:%M"),
+        time_was_defaulted=True,
+        notes=None if data["symptoms"] else raw_text,
+        confidence=0.4 if data["symptoms"] else 0.35,
+        data=data,
+    )
+
+
 def validate_model_output(raw_text: str, model_json: dict[str, Any], logged_at) -> ParseResult:
     fallback_classification, fallback_confidence, _scores = classify_text(raw_text)
     classification = normalize_classification(model_json.get("entry_classification"), fallback_classification)
@@ -381,17 +678,32 @@ def validate_model_output(raw_text: str, model_json: dict[str, Any], logged_at) 
         for field in SEVERITY_FIELDS:
             data[field] = _clamp_number(cleaned.get(field), 1, 5)
         data["sleep_hours"] = _clamp_number(cleaned.get("sleep_hours"), 0, 24, integer=False)
+        data["stool_form"] = _normalize_text_field(cleaned.get("stool_form"))
+        data["amount"] = _normalize_text_field(cleaned.get("amount"))
+        data["odor"] = _normalize_text_field(cleaned.get("odor"))
         data["symptoms"] = _normalize_symptoms(cleaned.get("symptoms"))
         data["context"] = _normalize_context(cleaned.get("context"))
+        extra = _model_extra(cleaned)
+        if extra:
+            data["ai_extra"] = extra
+        if event_type == "bowel_movement":
+            _enrich_bowel_movement(raw_text, data)
+        elif event_type == "symptom":
+            _enrich_symptom(raw_text, cleaned, data)
 
         event_time, defaulted = _event_time(cleaned.get("time"), logged_at)
+        notes = cleaned.get("notes") if isinstance(cleaned.get("notes"), str) else None
+        if notes is None and event_type == "context":
+            context_note = data["context"].get("note")
+            if isinstance(context_note, str):
+                notes = context_note
         events.append(
             ParsedEvent(
                 event_type=event_type,
                 event_date=parse_date_offset(logged_at, cleaned.get("date_offset")),
                 event_time=event_time,
                 time_was_defaulted=defaulted,
-                notes=cleaned.get("notes") if isinstance(cleaned.get("notes"), str) else None,
+                notes=notes,
                 confidence=_confidence(cleaned.get("confidence")),
                 data=data,
             )
@@ -400,6 +712,10 @@ def validate_model_output(raw_text: str, model_json: dict[str, Any], logged_at) 
     if not events:
         if classification == "meal":
             events.append(_heuristic_meal_event(raw_text, logged_at))
+        elif classification == "bowel_movement":
+            events.append(_heuristic_bowel_event(raw_text, logged_at))
+        elif classification == "symptom":
+            events.append(_heuristic_symptom_event(raw_text, logged_at))
         else:
             raise ParserError("No useful events found")
 
@@ -419,6 +735,10 @@ def fallback_parse_result(raw_text: str, logged_at, error: str) -> ParseResult:
     if classification in VALID_EVENT_TYPES:
         if classification == "meal":
             events.append(_heuristic_meal_event(raw_text, logged_at))
+        elif classification == "bowel_movement":
+            events.append(_heuristic_bowel_event(raw_text, logged_at))
+        elif classification == "symptom":
+            events.append(_heuristic_symptom_event(raw_text, logged_at))
         else:
             events.append(
                 ParsedEvent(

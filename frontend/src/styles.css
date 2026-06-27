@@ -31,7 +31,8 @@ body {
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
 }
 
@@ -52,7 +53,8 @@ button:disabled {
 }
 
 textarea,
-input {
+input,
+select {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -64,6 +66,7 @@ input {
 
 textarea:focus,
 input:focus,
+select:focus,
 button:focus-visible {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(36, 107, 97, 0.18);
@@ -174,6 +177,30 @@ p {
   max-width: 165px;
 }
 
+.top-row select {
+  max-width: 145px;
+}
+
+.evidence-list {
+  display: grid;
+  gap: 0.35rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+
+.ai-panel {
+  display: grid;
+  gap: 0.45rem;
+  border-left: 3px solid var(--primary);
+  padding: 0.65rem 0.75rem;
+  background: color-mix(in srgb, var(--primary) 7%, var(--surface));
+}
+
+.ai-lines {
+  display: grid;
+  gap: 0.3rem;
+}
+
 .action-row {
   flex-wrap: wrap;
 }
@@ -276,7 +303,7 @@ p {
   bottom: 0;
   z-index: 3;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.35rem;
   padding: 0.55rem max(0.55rem, env(safe-area-inset-left)) max(0.55rem, env(safe-area-inset-bottom)) max(0.55rem, env(safe-area-inset-right));
   background: color-mix(in srgb, var(--surface) 94%, transparent);
