@@ -6,40 +6,13 @@ It is not a medical diagnosis app and should not be treated as one.
 
 ## Local Hosting
 
-Create an optional `.env` file from the example:
+Create `.env`, start the stack detached, and pull the default model:
 
 ```bash
-cp .env.example .env
-```
-
-Set at least:
-
-```bash
-APP_PASSWORD=your-password
-SESSION_SECRET=a-long-random-string
-APP_TIMEZONE=America/Winnipeg
-```
-
-The default parser model is `qwen3:4b`. It is a safer default for Docker
-Desktop and shared hosts than larger models that can be killed while loading.
-If the host has enough memory headroom and parse quality needs improvement,
-try `gemma4:e4b` explicitly:
-
-```bash
-OLLAMA_MODEL=gemma4:e4b
-```
-
-Start Ollama and pull the default model once:
-
-```bash
-docker compose up -d ollama
+test -f .env || cp .env.example .env
+docker compose up -d --build ollama
 docker compose exec ollama ollama pull qwen3:4b
-```
-
-Run the app:
-
-```bash
-docker compose up --build
+docker compose up -d --build
 ```
 
 Open:
@@ -49,6 +22,21 @@ http://SERVER_IP:18080
 ```
 
 Do not expose the Ollama service directly.
+
+Set at least `APP_PASSWORD`, `SESSION_SECRET`, and `APP_TIMEZONE` in `.env`
+before using the app. The default web port is `18080`; override it with
+`WEB_PORT=19090` in `.env` if needed.
+
+The default parser model is `qwen3:4b`. It is a safer default for Docker
+Desktop and shared hosts than larger models that can be killed while loading.
+If the host has enough memory headroom and parse quality needs improvement,
+try `gemma4:e4b` by setting `OLLAMA_MODEL=gemma4:e4b` in `.env`, then pull it:
+
+```bash
+docker compose up -d ollama
+docker compose exec ollama ollama pull gemma4:e4b
+docker compose up -d --build
+```
 
 ## Docker Development Setup
 
