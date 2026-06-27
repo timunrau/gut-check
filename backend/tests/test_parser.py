@@ -182,6 +182,56 @@ def test_unknown_model_event_fields_are_preserved_as_ai_extra() -> None:
     }
 
 
+def test_mixed_rambly_model_output_creates_separate_events() -> None:
+    result = validate_model_output(
+        "Breakfast at 8 was oatmeal, banana, and coffee. At noon my lower stomach hurt 3 out of 5 and I felt bloated. At 4:15 I had a loose urgent watery poop.",
+        {
+            "entry_classification": "mixed",
+            "classification_confidence": 0.8,
+            "summary": "breakfast, lower stomach pain with bloating, urgent watery bowel movement",
+            "events": [
+                {
+                    "type": "meal",
+                    "time": "08:00",
+                    "date_offset": 0,
+                    "foods": ["oatmeal", "banana"],
+                    "drinks": ["coffee"],
+                    "confidence": 0.9,
+                },
+                {
+                    "type": "symptom",
+                    "time": "12:00",
+                    "date_offset": 0,
+                    "pain": {"location": "lower_stomach", "severity": 3},
+                    "bloating": True,
+                    "confidence": 0.8,
+                },
+                {
+                    "type": "bowel_movement",
+                    "time": "16:15",
+                    "date_offset": 0,
+                    "urgency": True,
+                    "stool_form": "watery",
+                    "confidence": 0.7,
+                },
+            ],
+        },
+        datetime.fromisoformat("2026-06-27T18:00:00-05:00"),
+    )
+
+    assert result.status == "parsed"
+    assert result.classification == "mixed"
+    assert [event.event_type for event in result.events] == ["meal", "symptom", "bowel_movement"]
+    assert result.events[0].data["foods"] == ["oatmeal", "banana"]
+    assert result.events[1].data["pain"] == 3
+    assert result.events[1].data["bloating"] == 3
+    assert result.events[1].data["symptoms"] == [
+        {"name": "lower stomach pain", "severity": 3, "location": "lower_stomach"}
+    ]
+    assert result.events[2].data["urgency"] == 3
+    assert result.events[2].data["bristol"] == 7
+
+
 def test_textual_pain_field_becomes_symptom_name() -> None:
     result = validate_model_output(
         "my stomach hurts",

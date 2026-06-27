@@ -348,6 +348,21 @@ def _clamp_number(value: Any, low: float, high: float, integer: bool = True) -> 
     return int(number) if integer else number
 
 
+def _severity_value(value: Any) -> int | None:
+    number = _clamp_number(value, 1, 5)
+    if number is not None:
+        return number
+    if isinstance(value, bool):
+        return 3 if value else None
+    if isinstance(value, str):
+        cleaned = value.strip().lower()
+        if cleaned in {"yes", "y", "true", "present", "urgent", "severe"}:
+            return 3
+        if cleaned in {"no", "n", "false", "none", "absent"}:
+            return None
+    return None
+
+
 def _confidence(value: Any) -> float:
     if isinstance(value, bool):
         return 0.7
@@ -377,6 +392,11 @@ def _pain_severity_from_text(value: str) -> int | None:
     if SMALL_SEVERITY_PATTERN.search(value):
         return 1
     return None
+
+
+def _pain_event_object(raw_event: dict[str, Any]) -> dict[str, Any]:
+    pain = raw_event.get("pain")
+    return pain if isinstance(pain, dict) else {}
 
 
 def _symptom_display_name(location: str | None, fallback: str = "pain") -> str:
@@ -462,6 +482,14 @@ def _add_symptom(
 
 
 def _symptom_name_from_text_field(value: Any, label: str) -> str | None:
+    if isinstance(value, dict):
+        name = value.get("name") or value.get("type")
+        if isinstance(name, str) and name.strip():
+            cleaned_name = _normalize_text_field(name)
+            if cleaned_name and (label in cleaned_name or PAIN_TEXT_PATTERN.search(cleaned_name)):
+                return cleaned_name
+            return f"{cleaned_name} {label}" if cleaned_name else None
+        return label
     if not isinstance(value, str):
         return None
     cleaned = _normalize_text_field(value)
@@ -476,6 +504,9 @@ def _pain_locations_from_event(raw_event: dict[str, Any]) -> list[str]:
     values = raw_event.get("pain_locations")
     if values is None:
         values = raw_event.get("pain_location")
+    pain = _pain_event_object(raw_event)
+    if values is None:
+        values = pain.get("location") or pain.get("area")
     if not isinstance(values, list):
         values = [values]
     locations = []
@@ -499,8 +530,9 @@ def _pain_locations_from_text(raw_text: str) -> list[str]:
 
 def _enrich_symptom(raw_text: str, raw_event: dict[str, Any], data: dict[str, Any]) -> None:
     symptoms = data.get("symptoms") or []
+    pain = _pain_event_object(raw_event)
     pain_name = _symptom_name_from_text_field(raw_event.get("pain"), "pain")
-    raw_severity = _pain_severity_from_text(raw_text)
+    raw_severity = _severity_value(pain.get("severity")) or _pain_severity_from_text(raw_text)
     event_locations = _pain_locations_from_event(raw_event)
     text_locations = _pain_locations_from_text(raw_text)
     locations = event_locations or text_locations
@@ -676,7 +708,10 @@ def validate_model_output(raw_text: str, model_json: dict[str, Any], logged_at) 
         data["portion"] = cleaned.get("portion") if isinstance(cleaned.get("portion"), str) else None
         data["bristol"] = _clamp_number(cleaned.get("bristol"), 1, 7)
         for field in SEVERITY_FIELDS:
-            data[field] = _clamp_number(cleaned.get(field), 1, 5)
+            if field == "pain" and isinstance(cleaned.get(field), dict):
+                data[field] = _severity_value(cleaned[field].get("severity"))
+            else:
+                data[field] = _severity_value(cleaned.get(field))
         data["sleep_hours"] = _clamp_number(cleaned.get("sleep_hours"), 0, 24, integer=False)
         data["stool_form"] = _normalize_text_field(cleaned.get("stool_form"))
         data["amount"] = _normalize_text_field(cleaned.get("amount"))
@@ -775,7 +810,7 @@ async def parse_entry(
     ollama_url: str,
     model: str,
     num_ctx: int = 4096,
-    num_predict: int = 256,
+    num_predict: int = 1024,
     timeout_seconds: float = 60.0,
 ) -> ParseResult:
     started_at = time.monotonic()

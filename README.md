@@ -23,6 +23,11 @@ http://SERVER_IP:18080
 
 Do not expose the Ollama service directly.
 
+For Android standalone/PWA mode, install the app from a secure origin. Chrome
+usually treats `http://SERVER_IP:18080` as a normal website shortcut, not a true
+standalone PWA. Put the web service behind HTTPS, then use Chrome's install/add
+to home screen flow from that HTTPS URL.
+
 Set at least `APP_PASSWORD`, `SESSION_SECRET`, and `APP_TIMEZONE` in `.env`
 before using the app. The default web port is `18080`; override it with
 `WEB_PORT=19090` in `.env` if needed.
@@ -123,7 +128,7 @@ Default resource guardrails:
 ```text
 OLLAMA_MODEL=qwen3:4b
 OLLAMA_NUM_CTX=4096
-OLLAMA_NUM_PREDICT=256
+OLLAMA_NUM_PREDICT=1024
 OLLAMA_TIMEOUT_SECONDS=60
 OLLAMA_KEEP_ALIVE=5m
 OLLAMA_MAX_LOADED_MODELS=1
