@@ -85,6 +85,37 @@ type PatternsResponse = {
   note: string;
 };
 
+const bristolTypes = [
+  {
+    type: 1,
+    description: "Separate hard lumps, like little pebbles."
+  },
+  {
+    type: 2,
+    description: "Hard and lumpy and starting to resemble a sausage."
+  },
+  {
+    type: 3,
+    description: "Sausage-shaped with cracks on the surface."
+  },
+  {
+    type: 4,
+    description: "Thinner and more snakelike, plus smooth and soft."
+  },
+  {
+    type: 5,
+    description: "Soft blobs with clear-cut edges."
+  },
+  {
+    type: 6,
+    description: "Fluffy, mushy pieces with ragged edges."
+  },
+  {
+    type: 7,
+    description: "Watery with no solid pieces."
+  }
+] as const;
+
 const labels: Record<EventType, string> = {
   meal: "Meals",
   bowel_movement: "Bowel movements",
@@ -204,6 +235,160 @@ function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone
   return <span className={`badge ${tone}`}>{children}</span>;
 }
 
+function BristolIllustration({ type }: { type: number }) {
+  if (type === 1) {
+    return (
+      <svg className="bristol-illustration" viewBox="0 0 150 88" role="img" aria-label="Bristol type 1 illustration">
+        <circle className="bristol-number" cx="18" cy="18" r="14" />
+        <text className="bristol-number-text" x="18" y="23">1</text>
+        <g fill="#7a473d">
+          <ellipse cx="47" cy="26" rx="16" ry="14" transform="rotate(20 47 26)" />
+          <ellipse cx="78" cy="31" rx="18" ry="14" transform="rotate(-12 78 31)" />
+          <ellipse cx="111" cy="29" rx="17" ry="14" transform="rotate(28 111 29)" />
+          <ellipse cx="59" cy="58" rx="18" ry="14" transform="rotate(25 59 58)" />
+          <ellipse cx="92" cy="60" rx="16" ry="18" transform="rotate(-24 92 60)" />
+          <ellipse cx="125" cy="57" rx="16" ry="15" transform="rotate(35 125 57)" />
+        </g>
+        <g fill="#9a6356" opacity="0.62">
+          <path d="M40 17c9 1 14 7 10 12-7-1-8-6-10-12Z" />
+          <path d="M76 22c8 0 14 4 13 11-8 0-11-4-13-11Z" />
+          <path d="M52 52c10 1 15 5 15 12-8 0-14-4-15-12Z" />
+          <path d="M90 48c8 3 12 8 9 16-8-3-10-8-9-16Z" />
+        </g>
+      </svg>
+    );
+  }
+
+  if (type === 2) {
+    return (
+      <svg className="bristol-illustration" viewBox="0 0 150 88" role="img" aria-label="Bristol type 2 illustration">
+        <circle className="bristol-number" cx="18" cy="18" r="14" />
+        <text className="bristol-number-text" x="18" y="23">2</text>
+        <g fill="#824d43">
+          <ellipse cx="53" cy="42" rx="28" ry="24" />
+          <ellipse cx="79" cy="39" rx="27" ry="26" />
+          <ellipse cx="105" cy="43" rx="29" ry="23" />
+          <ellipse cx="126" cy="45" rx="20" ry="18" />
+          <ellipse cx="38" cy="46" rx="20" ry="18" />
+        </g>
+        <g fill="#9d6655" opacity="0.68">
+          <path d="M45 27c10 1 16 8 12 14-11-1-11-8-12-14Z" />
+          <path d="M71 29c11 2 17 8 15 16-11-2-13-8-15-16Z" />
+          <path d="M100 31c14 1 22 8 19 17-13-1-15-8-19-17Z" />
+          <path d="M55 50c12 0 18 6 16 14-11 0-14-6-16-14Z" />
+          <path d="M112 51c11 0 17 5 16 12-10 1-13-4-16-12Z" />
+        </g>
+      </svg>
+    );
+  }
+
+  if (type === 3) {
+    return (
+      <svg className="bristol-illustration" viewBox="0 0 150 88" role="img" aria-label="Bristol type 3 illustration">
+        <circle className="bristol-number" cx="18" cy="18" r="14" />
+        <text className="bristol-number-text" x="18" y="23">3</text>
+        <path fill="#a36c52" d="M32 39c5-15 24-15 36-14 10 1 17-2 27 0 20 3 34 14 35 27 0 11-7 17-18 18-20 1-27-6-43-4-19 3-33 1-41-7-5-5-4-14 4-20Z" />
+        <path fill="#875244" d="M28 55c20 1 33 5 47 3 12-1 19 5 36 2 9-1 15-3 19-6-1 12-10 20-24 20-14 0-20-5-33-3-16 3-36 1-44-8-2-2-2-5-1-8Z" />
+        <g fill="#b98468" opacity="0.58">
+          <path d="M52 32c12-2 22-1 28 2-6 5-18 6-28-2Z" />
+          <path d="M87 30c13 1 23 5 28 12-12 0-22-4-28-12Z" />
+        </g>
+      </svg>
+    );
+  }
+
+  if (type === 4) {
+    return (
+      <svg className="bristol-illustration" viewBox="0 0 150 88" role="img" aria-label="Bristol type 4 illustration">
+        <circle className="bristol-number" cx="18" cy="18" r="14" />
+        <text className="bristol-number-text" x="18" y="23">4</text>
+        <path fill="#a56a4f" d="M29 45c8-15 42-17 72-15 17 1 34-10 42-4 7 6-8 22-34 29-21 6-56-2-82-3-8 0-5-5 2-7Z" />
+        <path fill="#bd825e" opacity="0.7" d="M27 49c26-7 58-1 87 3-25 9-67 0-88 1-7 0-6-2 1-4Z" />
+      </svg>
+    );
+  }
+
+  if (type === 5) {
+    return (
+      <svg className="bristol-illustration" viewBox="0 0 150 88" role="img" aria-label="Bristol type 5 illustration">
+        <circle className="bristol-number" cx="18" cy="18" r="14" />
+        <text className="bristol-number-text" x="18" y="23">5</text>
+        <g fill="#b87856">
+          <path d="M31 28c7-11 26-14 35-8 6 4-2 13-15 15-14 3-27 3-20-7Z" />
+          <path d="M75 27c10-5 34-3 39 5 4 7-8 12-23 12-17 0-28-9-16-17Z" />
+          <path d="M120 26c10-4 24-5 28 1 4 7-8 11-23 12-9 0-14-7-5-13Z" />
+          <path d="M28 54c7-10 36-17 51-9 13 7-4 23-28 25-21 2-34-5-23-16Z" />
+          <path d="M83 61c4-12 30-22 43-13 12 9 1 24-21 26-15 2-26-2-22-13Z" />
+          <path d="M126 52c11-4 33-1 38 8 5 10-16 16-34 14-13-1-18-15-4-22Z" />
+        </g>
+        <g fill="#d09a73" opacity="0.45">
+          <path d="M37 24c8-6 18-8 25-4-7 4-18 7-25 4Z" />
+          <path d="M79 30c10-4 21-2 30 3-9 2-22 2-30-3Z" />
+          <path d="M33 51c13-5 30-8 42-3-13 8-31 10-42 3Z" />
+        </g>
+      </svg>
+    );
+  }
+
+  if (type === 6) {
+    return (
+      <svg className="bristol-illustration" viewBox="0 0 150 88" role="img" aria-label="Bristol type 6 illustration">
+        <circle className="bristol-number" cx="18" cy="18" r="14" />
+        <text className="bristol-number-text" x="18" y="23">6</text>
+        <g fill="#c88a56">
+          <path d="M39 27l10-7 16 1 10-5 15 3 8-3 12 5 10-3 12 8-8 9-21 2-11 6-19-3-11 5-18-3-9 3-7-13 11-5Z" />
+          <path d="M30 60l7-9 10 2 10-5 15 5 12-3 11 8-6 12-18 4-10-4-13 5-13-3-5-12Z" />
+          <path d="M93 62l17-4 15-2 8 8-5 12-20 4-17 0 2-18Z" />
+          <path d="M106 47l15-5 20 3 8 11-25-2-13 4-5-11Z" />
+          <path d="M75 49l13-4 13 5-7 10-15 2-4-13Z" />
+        </g>
+        <g fill="#e1ad75" opacity="0.52">
+          <path d="M48 25c17-3 44-3 66 3-19 3-52 3-66-3Z" />
+          <path d="M37 58c10-5 24-4 36 2-14 5-28 4-36-2Z" />
+          <path d="M108 65c8-4 17-5 24-2-7 5-18 7-24 2Z" />
+        </g>
+      </svg>
+    );
+  }
+
+  return (
+    <svg className="bristol-illustration" viewBox="0 0 150 88" role="img" aria-label="Bristol type 7 illustration">
+      <circle className="bristol-number" cx="18" cy="18" r="14" />
+      <text className="bristol-number-text" x="18" y="23">7</text>
+      <path fill="#e8ad64" d="M34 41c10-5 21-4 31-10 15-8 26 1 40-4 13-5 34 5 30 17-2 7-16 7-24 13-9 6-13 17-34 16-17-1-25-11-40-11-14 0-21-14-3-21Z" />
+      <path fill="#f0c17f" opacity="0.62" d="M55 36c17-9 36-7 42-1-13 7-32 10-42 1Z" />
+      <path fill="#f0c17f" opacity="0.62" d="M94 34c16-2 29 1 33 10-12 2-26-1-33-10Z" />
+      <path fill="#f0c17f" opacity="0.62" d="M73 54c13-5 28-6 34 2-10 5-26 5-34-2Z" />
+      <path fill="#f0c17f" opacity="0.62" d="M47 50c8-1 15 2 15 9-9 1-15-2-15-9Z" />
+    </svg>
+  );
+}
+
+function appendLogPhrase(current: string, phrase: string): string {
+  const trimmedEnd = current.trimEnd();
+  if (!trimmedEnd) return phrase;
+  return `${trimmedEnd}\n${phrase}`;
+}
+
+function BristolGuide({ onSelect }: { onSelect: (type: number) => void }) {
+  return (
+    <details className="bristol-guide">
+      <summary>Bristol guide</summary>
+      <div className="bristol-panel">
+        {bristolTypes.map((item) => (
+          <button className="bristol-type" key={item.type} type="button" onClick={() => onSelect(item.type)}>
+            <BristolIllustration type={item.type} />
+            <div>
+              <h2>Type {item.type}</h2>
+              <p className="muted">{item.description}</p>
+            </div>
+          </button>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 function Login({ onLogin }: { onLogin: () => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -311,6 +496,7 @@ function DumpView({ refreshKey }: { refreshKey: () => void }) {
           <button className="primary" onClick={save} disabled={busy || !draft.trim()}>{busy ? "Saving..." : "Save"}</button>
           <button className="ghost" onClick={() => setDraft("")}>Clear</button>
         </div>
+        <BristolGuide onSelect={(type) => setDraft((value) => appendLogPhrase(value, `poop bristol ${type}`))} />
         {error && <p className="error">{error}</p>}
       </section>
 

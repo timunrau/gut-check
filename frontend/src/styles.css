@@ -205,6 +205,79 @@ p {
   flex-wrap: wrap;
 }
 
+.bristol-guide {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.bristol-guide summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 0.95rem;
+  color: var(--primary);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.bristol-guide summary::marker {
+  color: var(--muted);
+}
+
+.bristol-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  border-top: 1px solid var(--border);
+  padding: 0.75rem;
+}
+
+.bristol-type {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 0.7rem;
+  align-items: start;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font-weight: inherit;
+}
+
+.bristol-type h2 {
+  margin-bottom: 0.2rem;
+}
+
+.bristol-type:hover .bristol-illustration,
+.bristol-type:focus-visible .bristol-illustration {
+  box-shadow: 0 0 0 3px rgba(36, 107, 97, 0.18);
+}
+
+.bristol-illustration {
+  width: 120px;
+  height: 70px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 70%, var(--surface));
+  overflow: visible;
+}
+
+.bristol-number {
+  fill: color-mix(in srgb, var(--text) 82%, transparent);
+}
+
+.bristol-number-text {
+  fill: var(--surface);
+  font-size: 14px;
+  font-weight: 900;
+  text-anchor: middle;
+}
+
 .primary {
   border-color: var(--primary);
   background: var(--primary);
@@ -325,6 +398,10 @@ p {
 
 @media (max-width: 420px) {
   .event-card {
+    grid-template-columns: 1fr;
+  }
+
+  .bristol-panel {
     grid-template-columns: 1fr;
   }
 
