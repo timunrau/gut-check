@@ -1,0 +1,35 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama:/root/.ollama
+    expose:
+      - "11434"
+
+  api:
+    build:
+      context: ./backend
+    environment:
+      APP_PASSWORD: ${APP_PASSWORD:-change-me}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-long-random-string}
+      DATABASE_PATH: ${DATABASE_PATH:-/data/gutcheck.db}
+      OLLAMA_URL: ${OLLAMA_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:1.5b}
+      APP_TIMEZONE: ${APP_TIMEZONE:-America/Winnipeg}
+    volumes:
+      - ./data:/data
+    depends_on:
+      - ollama
+    expose:
+      - "8000"
+
+  web:
+    build:
+      context: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+
+volumes:
+  ollama:

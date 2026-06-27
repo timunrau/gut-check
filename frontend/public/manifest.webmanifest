@@ -1,0 +1,17 @@
+{
+  "name": "Gut Check",
+  "short_name": "Gut Check",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f3ed",
+  "theme_color": "#f7f3ed",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+

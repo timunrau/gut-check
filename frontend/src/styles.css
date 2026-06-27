@@ -1,0 +1,377 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f7f3ed;
+  color: #1d2523;
+  font-size: 16px;
+  --bg: #f7f3ed;
+  --surface: #fffaf3;
+  --text: #1d2523;
+  --muted: #68736f;
+  --border: #ded6ca;
+  --primary: #246b61;
+  --primary-strong: #174d46;
+  --amber: #b86e16;
+  --danger: #a83e33;
+  --good: #23744f;
+  --shadow: 0 1px 8px rgba(48, 42, 32, 0.08);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+textarea,
+input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.9rem 1rem;
+  outline: none;
+}
+
+textarea:focus,
+input:focus,
+button:focus-visible {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(36, 107, 97, 0.18);
+}
+
+textarea {
+  min-height: 210px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 1.35rem;
+  line-height: 1.2;
+}
+
+h2 {
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+p {
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.login-panel {
+  width: min(100%, 390px);
+  display: grid;
+  gap: 1rem;
+}
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+}
+
+.screen {
+  width: min(100%, 760px);
+  margin: 0 auto;
+  padding: 1rem 1rem 6.5rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0.95rem;
+  box-shadow: var(--shadow);
+}
+
+.event-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.log-card {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.followup-card {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.event-time,
+.status-line,
+.top-row,
+.action-row,
+.answer-row,
+.insert-row,
+.choice-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.top-row {
+  justify-content: space-between;
+}
+
+.top-row input {
+  max-width: 165px;
+}
+
+.insert-row,
+.choice-row {
+  flex-wrap: wrap;
+}
+
+.action-row,
+.answer-row {
+  flex-wrap: wrap;
+}
+
+.answer-row input {
+  flex: 1 1 150px;
+}
+
+.primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.primary:hover {
+  background: var(--primary-strong);
+}
+
+.ghost {
+  background: transparent;
+}
+
+.danger {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+}
+
+.small {
+  min-height: 38px;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.92rem;
+}
+
+.chip-button {
+  min-width: 44px;
+  padding: 0.6rem 0.8rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  max-width: 100%;
+  border-radius: 999px;
+  padding: 0.25rem 0.55rem;
+  background: #e9e0d3;
+  color: #2e3633;
+  font-size: 0.82rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.badge.warn {
+  background: #f8e4bf;
+  color: #70400d;
+}
+
+.badge.good {
+  background: #d8eadf;
+  color: #174d35;
+}
+
+.muted,
+.empty {
+  color: var(--muted);
+}
+
+.warning,
+.error {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.metric {
+  min-height: 112px;
+  display: grid;
+  align-content: center;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0.85rem;
+  text-align: center;
+  box-shadow: var(--shadow);
+}
+
+.metric span {
+  font-size: 2rem;
+  line-height: 1;
+  font-weight: 900;
+}
+
+.metric p {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding: 0.55rem max(0.55rem, env(safe-area-inset-left)) max(0.55rem, env(safe-area-inset-bottom)) max(0.55rem, env(safe-area-inset-right));
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(10px);
+}
+
+.bottom-nav button {
+  min-height: 52px;
+  padding: 0.55rem 0.35rem;
+  white-space: nowrap;
+}
+
+.bottom-nav button.active {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+}
+
+@media (max-width: 420px) {
+  .event-card {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .top-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .top-row input {
+    max-width: none;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #161b19;
+    --surface: #202725;
+    --text: #f4f0e8;
+    --muted: #aeb9b4;
+    --border: #3d4945;
+    --primary: #68b8a8;
+    --primary-strong: #86cec0;
+    --amber: #f2b75d;
+    --danger: #ff948a;
+    --good: #85d4a8;
+    --shadow: 0 1px 10px rgba(0, 0, 0, 0.22);
+  }
+
+  .primary,
+  .bottom-nav button.active {
+    color: #10201d;
+  }
+
+  .badge {
+    background: #33403c;
+    color: #f4f0e8;
+  }
+
+  .badge.warn {
+    background: #503a1e;
+    color: #ffd28b;
+  }
+
+  .badge.good {
+    background: #244534;
+    color: #9fe2b9;
+  }
+}
+
