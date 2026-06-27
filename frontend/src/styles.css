@@ -157,18 +157,10 @@ p {
   gap: 0.75rem;
 }
 
-.followup-card {
-  display: grid;
-  gap: 0.75rem;
-}
-
 .event-time,
 .status-line,
 .top-row,
-.action-row,
-.answer-row,
-.insert-row,
-.choice-row {
+.action-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -182,18 +174,8 @@ p {
   max-width: 165px;
 }
 
-.insert-row,
-.choice-row {
+.action-row {
   flex-wrap: wrap;
-}
-
-.action-row,
-.answer-row {
-  flex-wrap: wrap;
-}
-
-.answer-row input {
-  flex: 1 1 150px;
 }
 
 .primary {
@@ -220,11 +202,6 @@ p {
   min-height: 38px;
   padding: 0.45rem 0.7rem;
   font-size: 0.92rem;
-}
-
-.chip-button {
-  min-width: 44px;
-  padding: 0.6rem 0.8rem;
 }
 
 .badge {
@@ -374,4 +351,3 @@ p {
     color: #9fe2b9;
   }
 }
-

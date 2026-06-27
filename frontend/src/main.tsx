@@ -17,19 +17,6 @@ type EventItem = {
   data: Record<string, any>;
 };
 
-type Followup = {
-  id: number;
-  raw_log_id: number;
-  event_id: number | null;
-  question_text: string;
-  field_target: string;
-  answer_type: string;
-  choices: string[] | null;
-  status: string;
-  answer_text: string | null;
-  raw_text?: string;
-};
-
 type LogItem = {
   id: number;
   raw_text: string;
@@ -39,11 +26,8 @@ type LogItem = {
   entry_classification: string;
   classification_confidence: number;
   event_count?: number;
-  open_followup_count?: number;
   events?: EventItem[];
-  followups?: Followup[];
   new_events?: EventItem[];
-  new_followups?: Followup[];
 };
 
 type DayResponse = {
@@ -70,8 +54,15 @@ const labels: Record<EventType, string> = {
   context: "Context"
 };
 
+function dateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return dateInputValue(new Date());
 }
 
 function weekStartIso(): string {
@@ -79,7 +70,7 @@ function weekStartIso(): string {
   const day = current.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   current.setDate(current.getDate() + diff);
-  return current.toISOString().slice(0, 10);
+  return dateInputValue(current);
 }
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -164,7 +155,10 @@ function Login({ onLogin }: { onLogin: () => void }) {
         <h1>Gut Check</h1>
         <input
           autoFocus
+          id="login-password"
+          name="password"
           type="password"
+          autoComplete="current-password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           placeholder="Password"
@@ -174,57 +168,6 @@ function Login({ onLogin }: { onLogin: () => void }) {
         <button className="primary" disabled={busy || !password}>{busy ? "Signing in..." : "Log in"}</button>
       </form>
     </main>
-  );
-}
-
-function FollowupsPanel({ items, onChange }: { items: Followup[]; onChange: () => void }) {
-  const [answers, setAnswers] = useState<Record<number, string>>({});
-  if (!items.length) {
-    return null;
-  }
-
-  async function answer(item: Followup, answerText?: string) {
-    const text = (answerText ?? answers[item.id] ?? "").trim();
-    if (!text) return;
-    await apiFetch(`/api/followups/${item.id}/answer`, {
-      method: "POST",
-      body: JSON.stringify({ answer_text: text })
-    });
-    setAnswers((current) => ({ ...current, [item.id]: "" }));
-    onChange();
-  }
-
-  async function skip(item: Followup) {
-    await apiFetch(`/api/followups/${item.id}/skip`, { method: "POST" });
-    onChange();
-  }
-
-  return (
-    <section className="stack">
-      <h2>Follow-ups</h2>
-      {items.map((item) => (
-        <article className="card followup-card" key={item.id}>
-          <p>{item.question_text}</p>
-          {item.choices?.length ? (
-            <div className="choice-row">
-              {item.choices.map((choice) => (
-                <button key={choice} className="chip-button" onClick={() => answer(item, choice)}>{choice}</button>
-              ))}
-            </div>
-          ) : null}
-          <div className="answer-row">
-            <input
-              value={answers[item.id] || ""}
-              onChange={(event) => setAnswers((current) => ({ ...current, [item.id]: event.target.value }))}
-              inputMode={item.answer_type === "number" ? "decimal" : "text"}
-              aria-label="Answer"
-            />
-            <button onClick={() => answer(item)}>Save</button>
-            <button className="ghost" onClick={() => skip(item)}>Skip</button>
-          </div>
-        </article>
-      ))}
-    </section>
   );
 }
 
@@ -249,24 +192,10 @@ function DumpView({ refreshKey }: { refreshKey: () => void }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<LogItem | null>(null);
   const [error, setError] = useState("");
-  const [followups, setFollowups] = useState<Followup[]>([]);
 
   useEffect(() => {
     localStorage.setItem("gutcheck.draft", draft);
   }, [draft]);
-
-  useEffect(() => {
-    loadFollowups();
-  }, []);
-
-  async function loadFollowups() {
-    const open = await apiFetch<Followup[]>("/api/followups/open");
-    setFollowups(open);
-  }
-
-  function insert(prefix: string) {
-    setDraft((current) => `${current}${current.trim() ? "\n" : ""}${prefix}`);
-  }
 
   async function save() {
     const rawText = draft.trim();
@@ -281,7 +210,6 @@ function DumpView({ refreshKey }: { refreshKey: () => void }) {
       setResult(saved);
       setDraft("");
       localStorage.removeItem("gutcheck.draft");
-      setFollowups(saved.followups?.filter((item) => item.status === "open") || saved.new_followups || []);
       refreshKey();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
@@ -294,17 +222,13 @@ function DumpView({ refreshKey }: { refreshKey: () => void }) {
     <main className="screen">
       <section className="stack">
         <textarea
+          id="raw-entry"
+          name="raw-entry"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder="Say what you ate, pooped, felt, slept, or took..."
           rows={8}
         />
-        <div className="insert-row">
-          <button className="ghost" onClick={() => insert("Ate ")}>Ate</button>
-          <button className="ghost" onClick={() => insert("Pooped ")}>Pooped</button>
-          <button className="ghost" onClick={() => insert("Symptom: ")}>Symptom</button>
-          <button className="ghost" onClick={() => insert("Context: ")}>Context</button>
-        </div>
         <div className="action-row">
           <button className="primary" onClick={save} disabled={busy || !draft.trim()}>{busy ? "Saving..." : "Save"}</button>
           <button className="ghost" onClick={() => setDraft("")}>Clear</button>
@@ -318,12 +242,10 @@ function DumpView({ refreshKey }: { refreshKey: () => void }) {
             <Badge>{result.entry_classification}</Badge>
             <Badge tone={result.parser_status === "parsed" ? "good" : "warn"}>{result.parser_status}</Badge>
           </div>
-          {result.parser_status !== "parsed" && <p className="warning">Parser failed; raw entry was saved.</p>}
+          {result.parser_status !== "parsed" && <p className="warning">Saved raw entry. The model did not return structured events for this one.</p>}
           {(result.events || result.new_events || []).map((item) => <EventCard key={item.id} item={item} />)}
         </section>
       )}
-
-      <FollowupsPanel items={followups} onChange={loadFollowups} />
     </main>
   );
 }
@@ -346,7 +268,7 @@ function TodayView({ refreshToken }: { refreshToken: number }) {
     <main className="screen">
       <div className="top-row">
         <h1>Today</h1>
-        <input type="date" value={dateValue} onChange={(event) => setDateValue(event.target.value)} />
+        <input id="today-date" name="today-date" type="date" value={dateValue} onChange={(event) => setDateValue(event.target.value)} />
       </div>
       {(["meal", "bowel_movement", "symptom", "context"] as EventType[]).map((type) => (
         <section className="stack" key={type}>
@@ -372,7 +294,7 @@ function WeekView({ refreshToken }: { refreshToken: number }) {
     <main className="screen">
       <div className="top-row">
         <h1>Week</h1>
-        <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+        <input id="week-start-date" name="week-start-date" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
       </div>
       <section className="metric-grid">
         <div className="metric"><span>{week?.counts.bowel_movements ?? 0}</span><p>Bowel movements</p></div>
@@ -433,7 +355,6 @@ function LogsView({ refreshKey }: { refreshKey: () => void }) {
             <div className="status-line">
               <Badge>{log.entry_classification}</Badge>
               <Badge tone={log.parser_status === "parsed" ? "good" : "warn"}>{log.parser_status}</Badge>
-              {log.open_followup_count ? <Badge tone="warn">{log.open_followup_count} follow-up</Badge> : null}
             </div>
             <p>{log.raw_text}</p>
             {log.parser_error && <p className="warning">Parser: {log.parser_error}</p>}
@@ -506,4 +427,3 @@ function App() {
 }
 
 createRoot(document.getElementById("root")!).render(<App />);
-

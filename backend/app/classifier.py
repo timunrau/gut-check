@@ -77,11 +77,21 @@ KEYWORDS = {
     ],
 }
 
+MEAL_PORTION_PATTERN = re.compile(
+    r"\b(?:(?:a|an|one|two|three|four|five|six|seven|eight|nine|ten|half|quarter|\d+(?:\.\d+)?|\d+/\d+)\s+)?"
+    r"(?:cups?|bowls?|plates?|servings?|handfuls?|slices?|pieces?|tbsp|tablespoons?|tsp|teaspoons?|ounces?|oz|grams?|ml|liters?|litres?)"
+    r"\b"
+)
+
 
 def _keyword_hit(text: str, keyword: str) -> bool:
     if " " in keyword:
         return keyword in text
     return re.search(rf"\b{re.escape(keyword)}\b", text) is not None
+
+
+def _meal_portion_hits(text: str) -> int:
+    return len(MEAL_PORTION_PATTERN.findall(text))
 
 
 def classify_text(raw_text: str) -> tuple[str, float, dict[str, int]]:
@@ -90,6 +100,7 @@ def classify_text(raw_text: str) -> tuple[str, float, dict[str, int]]:
         category: sum(1 for keyword in keywords if _keyword_hit(text, keyword))
         for category, keywords in KEYWORDS.items()
     }
+    scores["meal"] += _meal_portion_hits(text)
     matched = [category for category, score in scores.items() if score > 0]
 
     if not matched:
@@ -112,4 +123,3 @@ def normalize_classification(value: object, fallback: str) -> str:
                 return fallback
             return normalized
     return fallback
-

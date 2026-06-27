@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from .auth import COOKIE_NAME, clear_session_cookie, is_valid_session, set_session_cookie
 from .classifier import classify_text
 from .db import connect, fetchall_dict, fetchone_dict, init_db, row_to_dict
-from .followups import answer_followup, create_followups, skip_followup
+from .followups import answer_followup, skip_followup
 from .parser import ParseResult, parse_entry
 from .settings import Settings, get_settings
 from .time_utils import app_now
@@ -136,25 +136,23 @@ def _update_log_after_parse(conn, raw_log_id: int, parse_result: ParseResult, mo
 
 async def _parse_and_store(conn, log: dict[str, Any], settings: Settings) -> dict[str, Any]:
     logged_at = _created_at_datetime(log["created_at"])
-    parse_result = await parse_entry(log["raw_text"], logged_at, settings.ollama_url, settings.ollama_model)
+    parse_result = await parse_entry(
+        log["raw_text"],
+        logged_at,
+        settings.ollama_url,
+        settings.ollama_model,
+        settings.ollama_num_ctx,
+    )
 
     conn.execute("DELETE FROM follow_up_questions WHERE raw_log_id = ?", (log["id"],))
     conn.execute("DELETE FROM events WHERE raw_log_id = ?", (log["id"],))
     _update_log_after_parse(conn, log["id"], parse_result, settings.ollama_model)
     events = _insert_events(conn, log["id"], parse_result)
-    followups = create_followups(
-        conn,
-        raw_log_id=log["id"],
-        raw_text=log["raw_text"],
-        events=events,
-        classification=parse_result.classification,
-        created_at=app_now(settings.app_timezone).isoformat(),
-    )
     conn.commit()
 
     public = _public_log(conn, log["id"])
     public["new_events"] = events
-    public["new_followups"] = followups
+    public["new_followups"] = []
     return public
 
 
