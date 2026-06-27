@@ -23,6 +23,7 @@ services:
       OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-1024}
       OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-60}
       APP_TIMEZONE: ${APP_TIMEZONE:-America/Winnipeg}
+      GARMIN_TOKENSTORE: ${GARMIN_TOKENSTORE:-/data/garmin_tokens}
     volumes:
       - ./data:/data
     depends_on:

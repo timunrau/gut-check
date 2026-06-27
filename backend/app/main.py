@@ -13,6 +13,7 @@ from .auth import COOKIE_NAME, clear_session_cookie, is_valid_session, set_sessi
 from .classifier import classify_text
 from .db import connect, fetchall_dict, fetchone_dict, init_db, row_to_dict
 from .followups import answer_followup, create_followups, skip_followup
+from . import garmin
 from .parser import ParseResult, parse_entry
 from .settings import Settings, get_settings
 from .time_utils import app_now
@@ -21,6 +22,7 @@ from .triggers import analyze_trigger_patterns
 app = FastAPI(title="Gut Check API")
 logger = logging.getLogger(__name__)
 _background_parse_tasks: set[asyncio.Task[None]] = set()
+_background_garmin_tasks: set[asyncio.Task[None]] = set()
 
 
 class LoginRequest(BaseModel):
@@ -33,6 +35,20 @@ class RawLogRequest(BaseModel):
 
 class FollowupAnswerRequest(BaseModel):
     answer_text: str
+
+
+class GarminAuthStartRequest(BaseModel):
+    email: str
+    password: str
+
+
+class GarminAuthFinishRequest(BaseModel):
+    pending_id: str
+    mfa_code: str
+
+
+class GarminSyncRequest(BaseModel):
+    days: int = 14
 
 
 def settings_dep() -> Settings:
@@ -57,7 +73,9 @@ def protected(
 
 @app.on_event("startup")
 def startup() -> None:
-    init_db(get_settings().database_path)
+    settings = get_settings()
+    init_db(settings.database_path)
+    _schedule_garmin_startup_sync(settings)
 
 
 def _created_at_datetime(raw_created_at: str) -> datetime:
@@ -200,6 +218,40 @@ def _schedule_parse(log_id: int, settings: Settings) -> None:
     task = asyncio.create_task(_parse_log_in_background(log_id, settings))
     _background_parse_tasks.add(task)
     task.add_done_callback(_background_parse_tasks.discard)
+
+
+def _sync_recent_garmin(settings: Settings) -> None:
+    if not garmin.tokenstore_exists(settings.garmin_tokenstore):
+        return
+    conn = connect(settings.database_path)
+    try:
+        end = app_now(settings.app_timezone).date()
+        start = end - timedelta(days=13)
+        garmin.sync_range(
+            conn,
+            settings.garmin_tokenstore,
+            start.isoformat(),
+            end.isoformat(),
+            app_now(settings.app_timezone).isoformat(),
+        )
+    except Exception as exc:
+        logger.warning("Garmin startup sync failed: %s", exc)
+        conn.rollback()
+        garmin.set_sync_state(conn, connected=False, last_error=f"{exc.__class__.__name__}: {exc}")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _schedule_garmin_startup_sync(settings: Settings) -> None:
+    if not garmin.tokenstore_exists(settings.garmin_tokenstore):
+        return
+    try:
+        task = asyncio.create_task(asyncio.to_thread(_sync_recent_garmin, settings))
+    except RuntimeError:
+        return
+    _background_garmin_tasks.add(task)
+    task.add_done_callback(_background_garmin_tasks.discard)
 
 
 @app.get("/api/health")
@@ -382,7 +434,7 @@ def _day_payload(conn, day: str) -> dict[str, Any]:
     grouped = {"meal": [], "bowel_movement": [], "symptom": [], "context": []}
     for item in items:
         grouped.setdefault(item["event_type"], []).append(item)
-    return {"date": day, "groups": grouped}
+    return {"date": day, "groups": grouped, "garmin": garmin.metric_for_day(conn, day)}
 
 
 @app.get("/api/day/{day}")
@@ -438,6 +490,7 @@ def week_summary(start_date: str, conn=Depends(get_conn), _auth: None = Depends(
         for item, count in sorted(possible_items.items(), key=lambda pair: (-pair[1], pair[0]))
         if count >= 2
     ][:5]
+    garmin_rows = garmin.metrics_between(conn, start.isoformat(), end.isoformat())
     return {
         "start_date": start.isoformat(),
         "end_date": end.isoformat(),
@@ -448,7 +501,108 @@ def week_summary(start_date: str, conn=Depends(get_conn), _auth: None = Depends(
         },
         "possible_repeated_foods_or_drinks": repeated,
         "note": "insufficient data" if not repeated else "worth watching only; not confirmed and not causal",
+        "garmin": {
+            "days": garmin_rows,
+            "averages": garmin.summarize_metrics(garmin_rows),
+        },
     }
+
+
+@app.get("/api/garmin/status")
+def garmin_status(
+    conn=Depends(get_conn),
+    settings: Settings = Depends(settings_dep),
+    _auth: None = Depends(protected),
+) -> dict[str, Any]:
+    return garmin.status(conn, settings.garmin_tokenstore)
+
+
+@app.post("/api/garmin/auth/start")
+def garmin_auth_start(
+    payload: GarminAuthStartRequest,
+    conn=Depends(get_conn),
+    settings: Settings = Depends(settings_dep),
+    _auth: None = Depends(protected),
+) -> dict[str, Any]:
+    email = payload.email.strip()
+    password = payload.password
+    if not email or not password:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Garmin email and password are required")
+    try:
+        result = garmin.start_auth(email, password, settings.garmin_tokenstore)
+        garmin.set_sync_state(conn, connected=bool(result["connected"]), last_error="")
+        conn.commit()
+        return result
+    except Exception as exc:
+        conn.rollback()
+        garmin.set_sync_state(conn, connected=False, last_error=f"{exc.__class__.__name__}: {exc}")
+        conn.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Garmin login failed: {exc}") from exc
+
+
+@app.post("/api/garmin/auth/finish")
+def garmin_auth_finish(
+    payload: GarminAuthFinishRequest,
+    conn=Depends(get_conn),
+    _auth: None = Depends(protected),
+) -> dict[str, Any]:
+    if not payload.pending_id.strip() or not payload.mfa_code.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Pending login and MFA code are required")
+    try:
+        result = garmin.finish_auth(payload.pending_id.strip(), payload.mfa_code.strip())
+        garmin.set_sync_state(conn, connected=True, last_error="")
+        conn.commit()
+        return result
+    except Exception as exc:
+        conn.rollback()
+        garmin.set_sync_state(conn, connected=False, last_error=f"{exc.__class__.__name__}: {exc}")
+        conn.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Garmin MFA failed: {exc}") from exc
+
+
+@app.post("/api/garmin/test")
+def garmin_test(
+    conn=Depends(get_conn),
+    settings: Settings = Depends(settings_dep),
+    _auth: None = Depends(protected),
+) -> dict[str, Any]:
+    try:
+        return garmin.test_connection(
+            conn,
+            settings.garmin_tokenstore,
+            app_now(settings.app_timezone).date().isoformat(),
+            app_now(settings.app_timezone).isoformat(),
+        )
+    except Exception as exc:
+        conn.rollback()
+        garmin.set_sync_state(conn, connected=False, last_error=f"{exc.__class__.__name__}: {exc}")
+        conn.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Garmin test failed: {exc}") from exc
+
+
+@app.post("/api/garmin/sync")
+def garmin_sync(
+    payload: GarminSyncRequest,
+    conn=Depends(get_conn),
+    settings: Settings = Depends(settings_dep),
+    _auth: None = Depends(protected),
+) -> dict[str, Any]:
+    days = max(1, min(payload.days, 60))
+    end = app_now(settings.app_timezone).date()
+    start = end - timedelta(days=days - 1)
+    try:
+        return garmin.sync_range(
+            conn,
+            settings.garmin_tokenstore,
+            start.isoformat(),
+            end.isoformat(),
+            app_now(settings.app_timezone).isoformat(),
+        )
+    except Exception as exc:
+        conn.rollback()
+        garmin.set_sync_state(conn, connected=False, last_error=f"{exc.__class__.__name__}: {exc}")
+        conn.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Garmin sync failed: {exc}") from exc
 
 
 @app.get("/api/patterns")

@@ -56,6 +56,32 @@ def init_db(database_path: str) -> None:
                 FOREIGN KEY (raw_log_id) REFERENCES raw_logs(id) ON DELETE CASCADE,
                 FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS garmin_daily_metrics (
+                metric_date TEXT PRIMARY KEY,
+                steps INTEGER,
+                sleep_hours REAL,
+                sleep_score REAL,
+                stress_avg REAL,
+                stress_max REAL,
+                body_battery_min REAL,
+                body_battery_max REAL,
+                body_battery_avg REAL,
+                body_battery_end REAL,
+                synced_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS garmin_sync_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                connected INTEGER NOT NULL DEFAULT 0,
+                last_sync_at TEXT,
+                last_error TEXT,
+                last_success_start_date TEXT,
+                last_success_end_date TEXT
+            );
+
+            INSERT OR IGNORE INTO garmin_sync_state (id, connected)
+            VALUES (1, 0);
             """
         )
 
@@ -75,6 +101,8 @@ def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
                     item[public_key] = value
     if "time_was_defaulted" in item:
         item["time_was_defaulted"] = bool(item["time_was_defaulted"])
+    if "connected" in item:
+        item["connected"] = bool(item["connected"])
     return item
 
 

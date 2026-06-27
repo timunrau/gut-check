@@ -13,6 +13,7 @@ class Settings:
     ollama_num_ctx: int = 4096
     ollama_num_predict: int = 1024
     ollama_timeout_seconds: float = 60.0
+    garmin_tokenstore: str = "/data/garmin_tokens"
 
 
 def get_settings() -> Settings:
@@ -26,4 +27,5 @@ def get_settings() -> Settings:
         ollama_num_ctx=int(os.getenv("OLLAMA_NUM_CTX", "4096")),
         ollama_num_predict=int(os.getenv("OLLAMA_NUM_PREDICT", "1024")),
         ollama_timeout_seconds=float(os.getenv("OLLAMA_TIMEOUT_SECONDS", "60")),
+        garmin_tokenstore=os.getenv("GARMIN_TOKENSTORE", "/data/garmin_tokens"),
     )

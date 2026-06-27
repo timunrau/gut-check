@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
-type View = "dump" | "today" | "week" | "patterns" | "logs";
+type View = "dump" | "today" | "week" | "patterns" | "logs" | "garmin";
 type EventType = "meal" | "bowel_movement" | "symptom" | "context";
 
 type EventItem = {
@@ -31,9 +31,34 @@ type LogItem = {
   new_events?: EventItem[];
 };
 
+type GarminMetric = {
+  metric_date: string;
+  steps: number | null;
+  sleep_hours: number | null;
+  sleep_score: number | null;
+  stress_avg: number | null;
+  stress_max: number | null;
+  body_battery_min: number | null;
+  body_battery_max: number | null;
+  body_battery_avg: number | null;
+  body_battery_end: number | null;
+  synced_at: string;
+};
+
+type GarminStatus = {
+  connected: boolean;
+  last_sync_at: string | null;
+  last_error: string | null;
+  last_success_start_date: string | null;
+  last_success_end_date: string | null;
+  tokenstore_exists: boolean;
+  mfa_pending: boolean;
+};
+
 type DayResponse = {
   date: string;
   groups: Record<EventType, EventItem[]>;
+  garmin: GarminMetric | null;
 };
 
 type WeekResponse = {
@@ -46,6 +71,17 @@ type WeekResponse = {
   };
   possible_repeated_foods_or_drinks: Array<{ item: string; count: number; language: string }>;
   note: string;
+  garmin: {
+    days: GarminMetric[];
+    averages: {
+      avg_steps: number | null;
+      avg_sleep_hours: number | null;
+      avg_sleep_score: number | null;
+      avg_stress: number | null;
+      avg_body_battery: number | null;
+      days_with_data: number;
+    };
+  };
 };
 
 type TriggerCandidate = {
@@ -229,6 +265,48 @@ function modelEventLine(event: any): string | null {
 function modelEventLines(parsed: Record<string, any> | null | undefined): string[] {
   if (!parsed || !Array.isArray(parsed.events)) return [];
   return parsed.events.map(modelEventLine).filter((line): line is string => Boolean(line));
+}
+
+function formatOptionalNumber(value: number | null | undefined, suffix = "", digits = 0): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
+  return `${value.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits })}${suffix}`;
+}
+
+function formatOptionalDateTime(value: string | null | undefined): string {
+  if (!value) return "Never";
+  return new Date(value).toLocaleString();
+}
+
+function formatBodyBatteryRange(metric: GarminMetric | null | undefined): string {
+  if (!metric || metric.body_battery_min === null || metric.body_battery_max === null) return "n/a";
+  return `${formatOptionalNumber(metric.body_battery_min)}-${formatOptionalNumber(metric.body_battery_max)}`;
+}
+
+function GarminMetricStrip({ metric }: { metric: GarminMetric | null | undefined }) {
+  return (
+    <section className="wearable-strip" aria-label="Garmin daily metrics">
+      <div className="wearable-item">
+        <span>{formatOptionalNumber(metric?.steps)}</span>
+        <p>Steps</p>
+      </div>
+      <div className="wearable-item">
+        <span>{formatOptionalNumber(metric?.sleep_hours, "h", 1)}</span>
+        <p>Sleep</p>
+      </div>
+      <div className="wearable-item">
+        <span>{formatOptionalNumber(metric?.sleep_score)}</span>
+        <p>Sleep score</p>
+      </div>
+      <div className="wearable-item">
+        <span>{formatOptionalNumber(metric?.stress_avg, "", 0)}</span>
+        <p>Stress avg</p>
+      </div>
+      <div className="wearable-item">
+        <span>{formatBodyBatteryRange(metric)}</span>
+        <p>Body battery low/high</p>
+      </div>
+    </section>
+  );
 }
 
 function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "warn" | "good" }) {
@@ -535,6 +613,7 @@ function TodayView({ refreshToken }: { refreshToken: number }) {
         <h1>Today</h1>
         <input id="today-date" name="today-date" type="date" value={dateValue} onChange={(event) => setDateValue(event.target.value)} />
       </div>
+      <GarminMetricStrip metric={day?.garmin} />
       {(["meal", "bowel_movement", "symptom", "context"] as EventType[]).map((type) => (
         <section className="stack" key={type}>
           <h2>{labels[type]}</h2>
@@ -565,6 +644,27 @@ function WeekView({ refreshToken }: { refreshToken: number }) {
         <div className="metric"><span>{week?.counts.bowel_movements ?? 0}</span><p>Bowel movements</p></div>
         <div className="metric"><span>{week?.counts.high_symptom_bowel_movements ?? 0}</span><p>High-symptom BMs</p></div>
         <div className="metric"><span>{week?.counts.symptom_entries ?? 0}</span><p>Symptom entries</p></div>
+      </section>
+      <section className="stack">
+        <h2>Garmin averages</h2>
+        <div className="metric-grid wearable-grid">
+          <div className="metric"><span>{formatOptionalNumber(week?.garmin.averages.avg_steps)}</span><p>Steps</p></div>
+          <div className="metric"><span>{formatOptionalNumber(week?.garmin.averages.avg_sleep_hours, "h", 1)}</span><p>Sleep</p></div>
+          <div className="metric"><span>{formatOptionalNumber(week?.garmin.averages.avg_sleep_score)}</span><p>Sleep score</p></div>
+          <div className="metric"><span>{formatOptionalNumber(week?.garmin.averages.avg_stress, "", 0)}</span><p>Stress</p></div>
+          <div className="metric"><span>{formatOptionalNumber(week?.garmin.averages.avg_body_battery, "", 0)}</span><p>Body battery</p></div>
+        </div>
+        <p className="muted">{week?.garmin.averages.days_with_data ?? 0} days with Garmin data.</p>
+        <div className="daily-metric-list">
+          {week?.garmin.days.length ? week.garmin.days.map((day) => (
+            <article className="daily-metric-row" key={day.metric_date}>
+              <strong>{day.metric_date}</strong>
+              <span>BB {formatBodyBatteryRange(day)}</span>
+              <span>Sleep {formatOptionalNumber(day.sleep_hours, "h", 1)}</span>
+              <span>Score {formatOptionalNumber(day.sleep_score)}</span>
+            </article>
+          )) : <p className="empty">No Garmin days synced.</p>}
+        </div>
       </section>
       <section className="stack">
         <h2>Worth watching</h2>
@@ -640,6 +740,187 @@ function PatternsView({ refreshToken }: { refreshToken: number }) {
           </article>
         )) : <p className="empty">No candidate patterns yet.</p>}
       </section>
+    </main>
+  );
+}
+
+function GarminView({ refreshKey }: { refreshKey: () => void }) {
+  const [status, setStatus] = useState<GarminStatus | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [busy, setBusy] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function loadStatus() {
+    setStatus(await apiFetch<GarminStatus>("/api/garmin/status"));
+  }
+
+  useEffect(() => {
+    loadStatus().catch((err) => setError(err instanceof Error ? err.message : "Could not load Garmin status"));
+  }, []);
+
+  async function startAuth(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy("login");
+    setError("");
+    setMessage("");
+    try {
+      const result = await apiFetch<{ connected: boolean; mfa_required: boolean; pending_id: string | null }>("/api/garmin/auth/start", {
+        method: "POST",
+        body: JSON.stringify({ email, password })
+      });
+      setPassword("");
+      if (result.mfa_required && result.pending_id) {
+        setPendingId(result.pending_id);
+        setMessage("Enter your Garmin MFA code to finish connecting.");
+      } else {
+        setPendingId(null);
+        setMessage("Garmin connected.");
+      }
+      await loadStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Garmin login failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function finishAuth(event: React.FormEvent) {
+    event.preventDefault();
+    if (!pendingId) return;
+    setBusy("mfa");
+    setError("");
+    setMessage("");
+    try {
+      await apiFetch("/api/garmin/auth/finish", {
+        method: "POST",
+        body: JSON.stringify({ pending_id: pendingId, mfa_code: mfaCode })
+      });
+      setPendingId(null);
+      setMfaCode("");
+      setMessage("Garmin connected.");
+      await loadStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Garmin MFA failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function testConnection() {
+    setBusy("test");
+    setError("");
+    setMessage("");
+    try {
+      const result = await apiFetch<{ ok: boolean; date: string; steps: number | null }>("/api/garmin/test", { method: "POST" });
+      setMessage(`Connection works for ${result.date}; steps ${formatOptionalNumber(result.steps)}.`);
+      await loadStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Garmin test failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function sync() {
+    setBusy("sync");
+    setError("");
+    setMessage("");
+    try {
+      const result = await apiFetch<{ synced: number; start_date: string; end_date: string }>("/api/garmin/sync", {
+        method: "POST",
+        body: JSON.stringify({ days: 14 })
+      });
+      setMessage(`Synced ${result.synced} days from ${result.start_date} to ${result.end_date}.`);
+      refreshKey();
+      await loadStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Garmin sync failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <main className="screen">
+      <div className="top-row">
+        <h1>Garmin</h1>
+        <Badge tone={status?.connected ? "good" : "warn"}>{status?.connected ? "connected" : "not connected"}</Badge>
+      </div>
+
+      <section className="card log-card">
+        <div className="status-line">
+          <Badge>{status?.tokenstore_exists ? "tokens saved" : "no tokens"}</Badge>
+          {status?.mfa_pending && <Badge tone="warn">MFA pending</Badge>}
+        </div>
+        <p className="muted">Last sync: {formatOptionalDateTime(status?.last_sync_at)}</p>
+        {status?.last_success_start_date && status.last_success_end_date && (
+          <p className="muted">Range: {status.last_success_start_date} to {status.last_success_end_date}</p>
+        )}
+        {status?.last_error && <p className="warning">{status.last_error}</p>}
+        <div className="action-row">
+          <button className="ghost" onClick={testConnection} disabled={Boolean(busy) || !status?.tokenstore_exists}>
+            {busy === "test" ? "Testing..." : "Test"}
+          </button>
+          <button className="primary" onClick={sync} disabled={Boolean(busy) || !status?.tokenstore_exists}>
+            {busy === "sync" ? "Syncing..." : "Sync 14 days"}
+          </button>
+          <button className="ghost" onClick={loadStatus} disabled={Boolean(busy)}>Refresh</button>
+        </div>
+      </section>
+
+      <form className="card log-card" onSubmit={startAuth}>
+        <h2>Connect</h2>
+        <input
+          id="garmin-email"
+          name="garmin-email"
+          type="email"
+          autoComplete="username"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="Garmin email"
+          aria-label="Garmin email"
+        />
+        <input
+          id="garmin-password"
+          name="garmin-password"
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          placeholder="Garmin password"
+          aria-label="Garmin password"
+        />
+        <button className="primary" disabled={busy === "login" || !email.trim() || !password}>
+          {busy === "login" ? "Connecting..." : "Connect Garmin"}
+        </button>
+      </form>
+
+      {pendingId && (
+        <form className="card log-card" onSubmit={finishAuth}>
+          <h2>MFA</h2>
+          <input
+            id="garmin-mfa"
+            name="garmin-mfa"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={mfaCode}
+            onChange={(event) => setMfaCode(event.target.value)}
+            placeholder="MFA code"
+            aria-label="Garmin MFA code"
+          />
+          <button className="primary" disabled={busy === "mfa" || !mfaCode.trim()}>
+            {busy === "mfa" ? "Verifying..." : "Finish connection"}
+          </button>
+        </form>
+      )}
+
+      {message && <p className="muted">{message}</p>}
+      {error && <p className="error">{error}</p>}
     </main>
   );
 }
@@ -754,6 +1035,7 @@ function App() {
     if (view === "week") return <WeekView refreshToken={refreshToken} />;
     if (view === "patterns") return <PatternsView refreshToken={refreshToken} />;
     if (view === "logs") return <LogsView refreshKey={refreshKey} />;
+    if (view === "garmin") return <GarminView refreshKey={refreshKey} />;
     return <DumpView refreshKey={refreshKey} />;
   }, [view, refreshToken]);
 
@@ -775,7 +1057,7 @@ function App() {
       </header>
       {screen}
       <nav className="bottom-nav" aria-label="Primary">
-        {(["dump", "today", "week", "patterns", "logs"] as View[]).map((item) => (
+        {(["dump", "today", "week", "patterns", "logs", "garmin"] as View[]).map((item) => (
           <button key={item} className={view === item ? "active" : ""} onClick={() => setView(item)}>
             {item[0].toUpperCase() + item.slice(1)}
           </button>

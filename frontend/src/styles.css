@@ -369,6 +369,61 @@ p {
   font-size: 0.88rem;
 }
 
+.wearable-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0.7rem;
+  box-shadow: var(--shadow);
+}
+
+.wearable-item {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  text-align: center;
+}
+
+.wearable-item span {
+  font-size: 1.1rem;
+  line-height: 1.1;
+  font-weight: 900;
+}
+
+.wearable-item p {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.wearable-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.daily-metric-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.daily-metric-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr 1fr;
+  gap: 0.5rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 0.65rem 0.75rem;
+  box-shadow: var(--shadow);
+}
+
+.daily-metric-row span {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
 .bottom-nav {
   position: fixed;
   left: 0;
@@ -376,7 +431,7 @@ p {
   bottom: 0;
   z-index: 3;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.35rem;
   padding: 0.55rem max(0.55rem, env(safe-area-inset-left)) max(0.55rem, env(safe-area-inset-bottom)) max(0.55rem, env(safe-area-inset-right));
   background: color-mix(in srgb, var(--surface) 94%, transparent);
@@ -407,6 +462,15 @@ p {
 
   .metric-grid {
     grid-template-columns: 1fr;
+  }
+
+  .wearable-strip,
+  .wearable-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .daily-metric-row {
+    grid-template-columns: 1fr 1fr;
   }
 
   .top-row {
