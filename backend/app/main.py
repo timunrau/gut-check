@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 
 import hmac
@@ -23,6 +23,7 @@ app = FastAPI(title="Gut Check API")
 logger = logging.getLogger(__name__)
 _background_parse_tasks: set[asyncio.Task[None]] = set()
 _background_garmin_tasks: set[asyncio.Task[None]] = set()
+_garmin_nightly_task: asyncio.Task[None] | None = None
 
 
 class LoginRequest(BaseModel):
@@ -76,6 +77,19 @@ def startup() -> None:
     settings = get_settings()
     init_db(settings.database_path)
     _schedule_garmin_startup_sync(settings)
+    _schedule_garmin_nightly_sync(settings)
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    global _garmin_nightly_task
+    if _garmin_nightly_task is not None:
+        _garmin_nightly_task.cancel()
+        try:
+            await _garmin_nightly_task
+        except asyncio.CancelledError:
+            pass
+        _garmin_nightly_task = None
 
 
 def _created_at_datetime(raw_created_at: str) -> datetime:
@@ -220,22 +234,47 @@ def _schedule_parse(log_id: int, settings: Settings) -> None:
     task.add_done_callback(_background_parse_tasks.discard)
 
 
-def _sync_recent_garmin(settings: Settings) -> None:
+def _parse_garmin_sync_time(raw_time: str) -> time:
+    try:
+        hour_text, minute_text = raw_time.split(":", 1)
+        parsed = time(hour=int(hour_text), minute=int(minute_text))
+    except (TypeError, ValueError):
+        logger.warning("Invalid GARMIN_SYNC_TIME=%r; using 03:15", raw_time)
+        return time(hour=3, minute=15)
+    return parsed
+
+
+def _next_garmin_sync_after(now: datetime, raw_time: str) -> datetime:
+    sync_time = _parse_garmin_sync_time(raw_time)
+    next_run = now.replace(
+        hour=sync_time.hour,
+        minute=sync_time.minute,
+        second=0,
+        microsecond=0,
+    )
+    if next_run <= now:
+        next_run += timedelta(days=1)
+    return next_run
+
+
+def _sync_recent_garmin(settings: Settings, reason: str = "startup") -> None:
     if not garmin.tokenstore_exists(settings.garmin_tokenstore):
         return
     conn = connect(settings.database_path)
     try:
-        end = app_now(settings.app_timezone).date()
-        start = end - timedelta(days=13)
+        now = app_now(settings.app_timezone)
+        days = max(1, min(settings.garmin_sync_days, 60))
+        end = now.date()
+        start = end - timedelta(days=days - 1)
         garmin.sync_range(
             conn,
             settings.garmin_tokenstore,
             start.isoformat(),
             end.isoformat(),
-            app_now(settings.app_timezone).isoformat(),
+            now.isoformat(),
         )
     except Exception as exc:
-        logger.warning("Garmin startup sync failed: %s", exc)
+        logger.warning("Garmin %s sync failed: %s", reason, exc)
         conn.rollback()
         garmin.set_sync_state(conn, connected=False, last_error=f"{exc.__class__.__name__}: {exc}")
         conn.commit()
@@ -244,14 +283,36 @@ def _sync_recent_garmin(settings: Settings) -> None:
 
 
 def _schedule_garmin_startup_sync(settings: Settings) -> None:
+    if not settings.garmin_auto_sync_enabled:
+        return
     if not garmin.tokenstore_exists(settings.garmin_tokenstore):
         return
     try:
-        task = asyncio.create_task(asyncio.to_thread(_sync_recent_garmin, settings))
+        task = asyncio.create_task(asyncio.to_thread(_sync_recent_garmin, settings, "startup"))
     except RuntimeError:
         return
     _background_garmin_tasks.add(task)
     task.add_done_callback(_background_garmin_tasks.discard)
+
+
+async def _garmin_nightly_sync_loop(settings: Settings) -> None:
+    while True:
+        now = app_now(settings.app_timezone)
+        next_run = _next_garmin_sync_after(now, settings.garmin_sync_time)
+        await asyncio.sleep(max(1.0, (next_run - now).total_seconds()))
+        await asyncio.to_thread(_sync_recent_garmin, settings, "nightly")
+
+
+def _schedule_garmin_nightly_sync(settings: Settings) -> None:
+    global _garmin_nightly_task
+    if not settings.garmin_auto_sync_enabled:
+        return
+    if _garmin_nightly_task is not None and not _garmin_nightly_task.done():
+        return
+    try:
+        _garmin_nightly_task = asyncio.create_task(_garmin_nightly_sync_loop(settings))
+    except RuntimeError:
+        _garmin_nightly_task = None
 
 
 @app.get("/api/health")
@@ -514,7 +575,16 @@ def garmin_status(
     settings: Settings = Depends(settings_dep),
     _auth: None = Depends(protected),
 ) -> dict[str, Any]:
-    return garmin.status(conn, settings.garmin_tokenstore)
+    status_payload = garmin.status(conn, settings.garmin_tokenstore)
+    status_payload["auto_sync_enabled"] = settings.garmin_auto_sync_enabled
+    status_payload["auto_sync_time"] = settings.garmin_sync_time
+    status_payload["auto_sync_days"] = settings.garmin_sync_days
+    status_payload["next_auto_sync_at"] = (
+        _next_garmin_sync_after(app_now(settings.app_timezone), settings.garmin_sync_time).isoformat()
+        if settings.garmin_auto_sync_enabled
+        else None
+    )
+    return status_payload
 
 
 @app.post("/api/garmin/auth/start")

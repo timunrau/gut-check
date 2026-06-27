@@ -24,6 +24,9 @@ services:
       OLLAMA_TIMEOUT_SECONDS: ${OLLAMA_TIMEOUT_SECONDS:-60}
       APP_TIMEZONE: ${APP_TIMEZONE:-America/Winnipeg}
       GARMIN_TOKENSTORE: ${GARMIN_TOKENSTORE:-/data/garmin_tokens}
+      GARMIN_AUTO_SYNC_ENABLED: ${GARMIN_AUTO_SYNC_ENABLED:-true}
+      GARMIN_SYNC_TIME: ${GARMIN_SYNC_TIME:-03:15}
+      GARMIN_SYNC_DAYS: ${GARMIN_SYNC_DAYS:-14}
     volumes:
       - ./data:/data
     depends_on:

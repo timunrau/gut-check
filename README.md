@@ -32,6 +32,19 @@ Set at least `APP_PASSWORD`, `SESSION_SECRET`, and `APP_TIMEZONE` in `.env`
 before using the app. The default web port is `18080`; override it with
 `WEB_PORT=19090` in `.env` if needed.
 
+Garmin sync runs once at API startup when saved Garmin tokens exist, then runs
+nightly in the app timezone. Configure it with:
+
+```text
+GARMIN_AUTO_SYNC_ENABLED=true
+GARMIN_SYNC_TIME=03:15
+GARMIN_SYNC_DAYS=14
+```
+
+`GARMIN_SYNC_TIME` is a 24-hour `HH:MM` local time based on `APP_TIMEZONE`.
+The nightly sync uses the same saved Garmin tokens as the manual sync button.
+Set `GARMIN_AUTO_SYNC_ENABLED=false` to use manual Garmin sync only.
+
 The default parser model is `qwen3:4b`. It is a safer default for Docker
 Desktop and shared hosts than larger models that can be killed while loading.
 If the host has enough memory headroom and parse quality needs improvement,

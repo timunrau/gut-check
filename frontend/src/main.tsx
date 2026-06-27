@@ -53,6 +53,10 @@ type GarminStatus = {
   last_success_end_date: string | null;
   tokenstore_exists: boolean;
   mfa_pending: boolean;
+  auto_sync_enabled: boolean;
+  auto_sync_time: string;
+  auto_sync_days: number;
+  next_auto_sync_at: string | null;
 };
 
 type DayResponse = {
@@ -860,6 +864,10 @@ function GarminView({ refreshKey }: { refreshKey: () => void }) {
         {status?.last_success_start_date && status.last_success_end_date && (
           <p className="muted">Range: {status.last_success_start_date} to {status.last_success_end_date}</p>
         )}
+        <p className="muted">
+          Nightly sync: {status?.auto_sync_enabled ? `${status.auto_sync_days} days at ${status.auto_sync_time}` : "off"}
+        </p>
+        {status?.next_auto_sync_at && <p className="muted">Next auto sync: {formatOptionalDateTime(status.next_auto_sync_at)}</p>}
         {status?.last_error && <p className="warning">{status.last_error}</p>}
         <div className="action-row">
           <button className="ghost" onClick={testConnection} disabled={Boolean(busy) || !status?.tokenstore_exists}>

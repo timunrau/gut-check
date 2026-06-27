@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -150,6 +151,10 @@ def test_garmin_auth_mfa_test_and_sync_endpoints(tmp_path, monkeypatch) -> None:
         status = client.get("/api/garmin/status")
         assert status.status_code == 200
         assert status.json()["connected"] is True
+        assert status.json()["auto_sync_enabled"] is True
+        assert status.json()["auto_sync_time"] == "03:15"
+        assert status.json()["auto_sync_days"] == 14
+        assert status.json()["next_auto_sync_at"] is not None
 
         conn = connect(settings.database_path)
         try:
@@ -164,6 +169,15 @@ def test_garmin_auth_mfa_test_and_sync_endpoints(tmp_path, monkeypatch) -> None:
         assert row["body_battery_end"] == 68.0
     finally:
         cleanup_app()
+
+
+def test_garmin_nightly_sync_schedule_rolls_to_next_local_run() -> None:
+    morning = datetime(2026, 6, 27, 2, 30, 0)
+    after_run = datetime(2026, 6, 27, 3, 30, 0)
+
+    assert main._next_garmin_sync_after(morning, "03:15") == datetime(2026, 6, 27, 3, 15, 0)
+    assert main._next_garmin_sync_after(after_run, "03:15") == datetime(2026, 6, 28, 3, 15, 0)
+    assert main._next_garmin_sync_after(morning, "bad-time") == datetime(2026, 6, 27, 3, 15, 0)
 
 
 def test_garmin_auth_without_mfa_stores_tokens(tmp_path, monkeypatch) -> None:
