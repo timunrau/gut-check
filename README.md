@@ -45,7 +45,7 @@ docker compose up --build
 Open:
 
 ```text
-http://SERVER_IP:8080
+http://SERVER_IP:18080
 ```
 
 Do not expose the Ollama service directly.
@@ -61,7 +61,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 Open the Vite dev app:
 
 ```text
-http://localhost:8080
+http://localhost:18080
 ```
 
 The dev frontend proxies `/api` to the API container. FastAPI runs with reload, and Vite runs with hot reload.
