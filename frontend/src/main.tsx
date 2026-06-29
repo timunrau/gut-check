@@ -172,6 +172,17 @@ const labels: Record<EventType, string> = {
   context: "Context"
 };
 
+const primaryViews: View[] = ["dump", "today", "week", "patterns", "logs"];
+
+const viewLabels: Record<View, string> = {
+  dump: "Add",
+  today: "Today",
+  week: "Week",
+  patterns: "Trends",
+  logs: "Logs",
+  garmin: "Settings"
+};
+
 function dateInputValue(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -799,6 +810,7 @@ function TodayView({ refreshToken }: { refreshToken: number }) {
   }, [dateValue, refreshToken]);
 
   async function deleteEvent(id: number) {
+    if (!window.confirm("Delete this event?")) return;
     await apiFetch(`/api/events/${id}`, { method: "DELETE" });
     const updated = await apiFetch<DayResponse>(`/api/day/${dateValue}`);
     setDay(updated);
@@ -1074,11 +1086,12 @@ function GarminView({ refreshKey }: { refreshKey: () => void }) {
   return (
     <main className="screen">
       <div className="top-row">
-        <h1>Garmin</h1>
+        <h1>Settings</h1>
         <Badge tone={status?.connected ? "good" : "warn"}>{status?.connected ? "connected" : "not connected"}</Badge>
       </div>
 
       <section className="card log-card">
+        <h2>Garmin</h2>
         <div className="status-line">
           <Badge>{status?.tokenstore_exists ? "tokens saved" : "no tokens"}</Badge>
           {status?.mfa_pending && <Badge tone="warn">MFA pending</Badge>}
@@ -1218,6 +1231,7 @@ function LogsView({ refreshKey }: { refreshKey: () => void }) {
   }
 
   async function remove(id: number) {
+    if (!window.confirm("Delete this raw log and its events?")) return;
     setBusyId(id);
     await apiFetch(`/api/logs/${id}`, { method: "DELETE" });
     await load();
@@ -1281,16 +1295,19 @@ function App() {
     <>
       <header className="app-header">
         <strong>Gut Check</strong>
-        <button className="ghost small" onClick={async () => {
-          await apiFetch("/api/auth/logout", { method: "POST" });
-          setAuthed(false);
-        }}>Log out</button>
+        <div className="header-actions">
+          <button className={`ghost small ${view === "garmin" ? "active" : ""}`} onClick={() => setView("garmin")}>Settings</button>
+          <button className="ghost small" onClick={async () => {
+            await apiFetch("/api/auth/logout", { method: "POST" });
+            setAuthed(false);
+          }}>Log out</button>
+        </div>
       </header>
       {screen}
       <nav className="bottom-nav" aria-label="Primary">
-        {(["dump", "today", "week", "patterns", "logs", "garmin"] as View[]).map((item) => (
+        {primaryViews.map((item) => (
           <button key={item} className={view === item ? "active" : ""} onClick={() => setView(item)}>
-            {item[0].toUpperCase() + item.slice(1)}
+            {viewLabels[item]}
           </button>
         ))}
       </nav>
