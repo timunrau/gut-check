@@ -399,19 +399,11 @@ function cleanEventForExport(event: EventItem): Record<string, any> {
 function buildPatternsExport(patterns: PatternsResponse): string {
   return JSON.stringify(
     {
-      source: "Gut Check",
-      export_type: "patterns_period",
-      exported_at: new Date().toISOString(),
+      export_type: "cleaned_period_data",
       selected_period: {
         days: patterns.days,
         start_date: patterns.start_date,
         end_date: patterns.end_date
-      },
-      pattern_analysis: {
-        counts: patterns.counts,
-        summary: patterns.summary,
-        note: patterns.note,
-        candidate_triggers: cleanObjectArrayForExport(patterns.candidate_triggers)
       },
       cleaned_events: patterns.events.map(cleanEventForExport),
       garmin: {
