@@ -1,0 +1,38 @@
+version = 1
+name = "gut-check"
+
+[setup]
+script = """
+test -f .env || cp .env.example .env
+docker compose -f docker-compose.yml -f docker-compose.dev.yml config >/dev/null
+"""
+
+[[actions]]
+name = "Run"
+icon = "run"
+command = "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build"
+
+[[actions]]
+name = "Pull Ollama Model"
+icon = "download"
+command = "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d ollama && docker compose -f docker-compose.yml -f docker-compose.dev.yml exec ollama ollama pull qwen3:4b"
+
+[[actions]]
+name = "Backend Tests"
+icon = "test"
+command = "docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm api pytest"
+
+[[actions]]
+name = "Frontend Build"
+icon = "build"
+command = "docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm web npm run build"
+
+[[actions]]
+name = "Logs"
+icon = "logs"
+command = "docker compose -f docker-compose.yml -f docker-compose.dev.yml logs -f"
+
+[[actions]]
+name = "Stop"
+icon = "stop"
+command = "docker compose -f docker-compose.yml -f docker-compose.dev.yml down"

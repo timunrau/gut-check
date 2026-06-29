@@ -83,6 +83,61 @@ MEAL_QUANTITY_PATTERN = re.compile(
     r"\b(?:\s+of\b)?",
     re.IGNORECASE,
 )
+MERIDIEM_TIME_PATTERN = re.compile(
+    r"\b(?P<hour>1[0-2]|0?[1-9])(?::(?P<minute>[0-5]\d))?\s*(?P<meridiem>a\.?m\.?|p\.?m\.?)\b",
+    re.IGNORECASE,
+)
+COMPACT_MERIDIEM_TIME_PATTERN = re.compile(
+    r"\b(?P<compact>(?:[1-9]|1[0-2])[0-5]\d)\s*(?P<meridiem>a\.?m\.?|p\.?m\.?)\b",
+    re.IGNORECASE,
+)
+CUED_TIME_PATTERN = re.compile(
+    r"\b(?:at|around|about|approximately|approx|by|before|after)\s+"
+    r"(?:(?P<special>noon|midnight)|"
+    r"(?P<hour>2[0-3]|[01]?\d)(?::(?P<minute>[0-5]\d))?\s*(?P<meridiem>a\.?m\.?|p\.?m\.?)?)\b",
+    re.IGNORECASE,
+)
+BARE_TIME_VALUE_PATTERN = re.compile(r"^(?P<hour>2[0-3]|[01]?\d)(?::(?P<minute>[0-5]\d))?$")
+TIME_WORD_PATTERN = re.compile(
+    r"^(?P<hour>one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)"
+    r"(?:\s+(?P<minute>oh\s+five|oh\s+ten|zero\s+five|zero\s+ten|fifteen|thirty|forty\s+five|"
+    r"five|ten|twenty|twenty\s+five|thirty\s+five|forty|fifty|[0-5]?\d))?"
+    r"(?:\s*(?P<meridiem>a\.?m\.?|p\.?m\.?))?$",
+    re.IGNORECASE,
+)
+MORNING_CONTEXT_PATTERN = re.compile(r"\b(?:morning|breakfast)\b", re.IGNORECASE)
+AFTERNOON_CONTEXT_PATTERN = re.compile(r"\b(?:afternoon|lunch)\b", re.IGNORECASE)
+EVENING_CONTEXT_PATTERN = re.compile(r"\b(?:evening|dinner|supper|tonight)\b", re.IGNORECASE)
+TIME_WORD_NUMBERS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+}
+TIME_MINUTE_WORDS = {
+    "oh five": 5,
+    "oh ten": 10,
+    "zero five": 5,
+    "zero ten": 10,
+    "five": 5,
+    "ten": 10,
+    "fifteen": 15,
+    "twenty": 20,
+    "twenty five": 25,
+    "thirty": 30,
+    "thirty five": 35,
+    "forty": 40,
+    "forty five": 45,
+    "fifty": 50,
+}
 BRISTOL_LABELS = {
     1: "separate hard lumps",
     2: "lumpy sausage",
@@ -153,6 +208,9 @@ Rules:
 * Do not invent facts.
 * Do not assume meals caused symptoms.
 * Do not assume symptoms are related to meals.
+* If the entry includes a time, normalize it to 24-hour HH:MM in the event time field.
+* Interpret common spoken times: "8am" -> "08:00", "8 pm" -> "20:00", "9:30 p m" -> "21:30", "noon" -> "12:00", "midnight" -> "00:00".
+* If a time is ambiguous but has meal/day context, use that context: breakfast/morning -> AM; lunch/afternoon -> PM; dinner/evening/tonight -> PM.
 * If time is missing, return null. The backend will use logged time.
 * Omit optional fields when unknown.
 * Bristol must be 1-7 or null.
@@ -373,9 +431,103 @@ def _confidence(value: Any) -> float:
     return max(0.0, min(1.0, number))
 
 
-def _event_time(value: Any, logged_at) -> tuple[str, bool]:
+def _hour_with_context(hour: int, meridiem: str | None, raw_text: str, logged_at) -> int:
+    if meridiem:
+        normalized = meridiem.lower().replace(".", "")
+        if normalized == "am":
+            return 0 if hour == 12 else hour
+        return 12 if hour == 12 else hour + 12
+    if hour > 12:
+        return hour
+    if MORNING_CONTEXT_PATTERN.search(raw_text):
+        return 0 if hour == 12 else hour
+    if AFTERNOON_CONTEXT_PATTERN.search(raw_text) or EVENING_CONTEXT_PATTERN.search(raw_text):
+        return hour if hour == 12 else hour + 12
+    if hour == 12:
+        return 12
+
+    candidates = [hour, hour + 12]
+    logged_minutes = logged_at.hour * 60 + logged_at.minute
+    past_candidates = [candidate for candidate in candidates if candidate * 60 <= logged_minutes]
+    return max(past_candidates) if past_candidates else hour
+
+
+def _time_from_match(match: re.Match[str], raw_text: str, logged_at) -> str:
+    compact = match.groupdict().get("compact")
+    if compact:
+        hour = int(compact[:-2])
+        minute = int(compact[-2:])
+        hour = _hour_with_context(hour, match.groupdict().get("meridiem"), raw_text, logged_at)
+        return f"{hour:02d}:{minute:02d}"
+    special = match.groupdict().get("special")
+    if special:
+        return "12:00" if special.lower() == "noon" else "00:00"
+    hour = int(match.group("hour"))
+    minute = int(match.group("minute") or 0)
+    hour = _hour_with_context(hour, match.groupdict().get("meridiem"), raw_text, logged_at)
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _normalize_time_text(value: str) -> str:
+    cleaned = value.strip().lower()
+    cleaned = re.sub(r"\b([ap])\s*\.\s*m\.?\b", r"\1m", cleaned)
+    cleaned = re.sub(r"\b([ap])\s+m\b", r"\1m", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned
+
+
+def _explicit_time_from_text(raw_text: str, logged_at) -> str | None:
+    normalized = _normalize_time_text(raw_text)
+    for pattern in (COMPACT_MERIDIEM_TIME_PATTERN, MERIDIEM_TIME_PATTERN, CUED_TIME_PATTERN):
+        match = pattern.search(normalized)
+        if match:
+            return _time_from_match(match, normalized, logged_at)
+    if re.search(r"\b(?:noon|midday|midnight)\b", normalized, re.IGNORECASE):
+        return "00:00" if re.search(r"\bmidnight\b", normalized, re.IGNORECASE) else "12:00"
+    return None
+
+
+def _time_from_model_value(value: str, logged_at, raw_text: str | None) -> str | None:
+    cleaned = _normalize_time_text(value)
+    explicit_time = _explicit_time_from_text(cleaned, logged_at)
+    if explicit_time:
+        return explicit_time
+
+    context = raw_text or cleaned
+    match = BARE_TIME_VALUE_PATTERN.fullmatch(cleaned)
+    if match:
+        hour = int(match.group("hour"))
+        minute = int(match.group("minute") or 0)
+        hour = _hour_with_context(hour, None, context, logged_at)
+        return f"{hour:02d}:{minute:02d}"
+
+    word_match = TIME_WORD_PATTERN.fullmatch(cleaned)
+    if word_match:
+        hour = TIME_WORD_NUMBERS[word_match.group("hour").lower()]
+        minute_text = word_match.group("minute")
+        minute = 0
+        if minute_text:
+            normalized_minute = minute_text.lower().replace("  ", " ")
+            minute = TIME_MINUTE_WORDS.get(
+                normalized_minute,
+                int(normalized_minute) if normalized_minute.isdigit() else 0,
+            )
+        hour = _hour_with_context(hour, word_match.groupdict().get("meridiem"), context, logged_at)
+        return f"{hour:02d}:{minute:02d}"
+    return None
+
+
+def _event_time(value: Any, logged_at, raw_text: str | None = None) -> tuple[str, bool]:
     if isinstance(value, str) and re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value.strip()):
         return value.strip(), False
+    if isinstance(value, str):
+        model_time = _time_from_model_value(value, logged_at, raw_text)
+        if model_time:
+            return model_time, False
+    if raw_text:
+        explicit_time = _explicit_time_from_text(raw_text, logged_at)
+        if explicit_time:
+            return explicit_time, False
     return logged_at.strftime("%H:%M"), True
 
 
@@ -618,11 +770,12 @@ def _simple_meal_items(raw_text: str) -> tuple[list[str], list[str]]:
 def _heuristic_meal_event(raw_text: str, logged_at) -> ParsedEvent:
     data = _empty_event_data()
     data["foods"], data["drinks"] = _simple_meal_items(raw_text)
+    event_time, defaulted = _event_time(None, logged_at, raw_text)
     return ParsedEvent(
         event_type="meal",
         event_date=logged_at.date().isoformat(),
-        event_time=logged_at.strftime("%H:%M"),
-        time_was_defaulted=True,
+        event_time=event_time,
+        time_was_defaulted=defaulted,
         notes=None if data["foods"] else raw_text,
         confidence=0.55,
         data=data,
@@ -656,11 +809,12 @@ def _enrich_bowel_movement(raw_text: str, data: dict[str, Any]) -> None:
 def _heuristic_bowel_event(raw_text: str, logged_at) -> ParsedEvent:
     data = _empty_event_data()
     _enrich_bowel_movement(raw_text, data)
+    event_time, defaulted = _event_time(None, logged_at, raw_text)
     return ParsedEvent(
         event_type="bowel_movement",
         event_date=logged_at.date().isoformat(),
-        event_time=logged_at.strftime("%H:%M"),
-        time_was_defaulted=True,
+        event_time=event_time,
+        time_was_defaulted=defaulted,
         notes=None if data.get("stool_form") else raw_text,
         confidence=0.45 if data.get("stool_form") else 0.35,
         data=data,
@@ -670,11 +824,12 @@ def _heuristic_bowel_event(raw_text: str, logged_at) -> ParsedEvent:
 def _heuristic_symptom_event(raw_text: str, logged_at) -> ParsedEvent:
     data = _empty_event_data()
     _enrich_symptom(raw_text, {}, data)
+    event_time, defaulted = _event_time(None, logged_at, raw_text)
     return ParsedEvent(
         event_type="symptom",
         event_date=logged_at.date().isoformat(),
-        event_time=logged_at.strftime("%H:%M"),
-        time_was_defaulted=True,
+        event_time=event_time,
+        time_was_defaulted=defaulted,
         notes=None if data["symptoms"] else raw_text,
         confidence=0.4 if data["symptoms"] else 0.35,
         data=data,
@@ -691,6 +846,11 @@ def validate_model_output(raw_text: str, model_json: dict[str, Any], logged_at) 
     raw_events = model_json.get("events", [])
     if not isinstance(raw_events, list):
         raw_events = []
+    valid_raw_event_count = sum(
+        1
+        for raw_event in raw_events
+        if isinstance(raw_event, dict) and str(raw_event.get("type", "")).strip().lower() in VALID_EVENT_TYPES
+    )
 
     events: list[ParsedEvent] = []
     for raw_event in raw_events:
@@ -726,7 +886,11 @@ def validate_model_output(raw_text: str, model_json: dict[str, Any], logged_at) 
         elif event_type == "symptom":
             _enrich_symptom(raw_text, cleaned, data)
 
-        event_time, defaulted = _event_time(cleaned.get("time"), logged_at)
+        event_time, defaulted = _event_time(
+            cleaned.get("time"),
+            logged_at,
+            raw_text if valid_raw_event_count == 1 else None,
+        )
         notes = cleaned.get("notes") if isinstance(cleaned.get("notes"), str) else None
         if notes is None and event_type == "context":
             context_note = data["context"].get("note")
@@ -775,12 +939,13 @@ def fallback_parse_result(raw_text: str, logged_at, error: str) -> ParseResult:
         elif classification == "symptom":
             events.append(_heuristic_symptom_event(raw_text, logged_at))
         else:
+            event_time, defaulted = _event_time(None, logged_at, raw_text)
             events.append(
                 ParsedEvent(
                     event_type=classification,
                     event_date=logged_at.date().isoformat(),
-                    event_time=logged_at.strftime("%H:%M"),
-                    time_was_defaulted=True,
+                    event_time=event_time,
+                    time_was_defaulted=defaulted,
                     notes=raw_text,
                     confidence=0.35,
                     data=_empty_event_data(),

@@ -76,6 +76,110 @@ def test_model_output_is_cleaned_after_ai_parse() -> None:
     assert result.events[0].data["drinks"] == ["milk"]
 
 
+def test_model_missing_time_uses_explicit_time_from_single_entry_text() -> None:
+    result = validate_model_output(
+        "Breakfast at 8 was oatmeal, banana, and coffee",
+        {
+            "entry_classification": "meal",
+            "classification_confidence": 0.8,
+            "events": [
+                {
+                    "type": "meal",
+                    "time": None,
+                    "date_offset": 0,
+                    "foods": ["oatmeal", "banana"],
+                    "drinks": ["coffee"],
+                    "confidence": 0.7,
+                }
+            ],
+        },
+        datetime.fromisoformat("2026-06-27T22:15:00-05:00"),
+    )
+
+    assert result.events[0].event_time == "08:00"
+    assert result.events[0].time_was_defaulted is False
+
+
+def test_model_sloppy_time_value_is_normalized() -> None:
+    result = validate_model_output(
+        "I had lower stomach pain at 9:30 pm",
+        {
+            "entry_classification": "symptom",
+            "classification_confidence": 0.8,
+            "events": [
+                {
+                    "type": "symptom",
+                    "time": "around 9:30 p m",
+                    "date_offset": 0,
+                    "pain": {"location": "lower_stomach", "severity": 2},
+                    "confidence": 0.7,
+                }
+            ],
+        },
+        datetime.fromisoformat("2026-06-27T23:15:00-05:00"),
+    )
+
+    assert result.events[0].event_time == "21:30"
+    assert result.events[0].time_was_defaulted is False
+
+
+def test_model_compact_time_value_is_normalized() -> None:
+    result = validate_model_output(
+        "I pooped at 930pm",
+        {
+            "entry_classification": "bowel_movement",
+            "classification_confidence": 0.8,
+            "events": [
+                {
+                    "type": "bowel_movement",
+                    "time": "930pm",
+                    "date_offset": 0,
+                    "confidence": 0.7,
+                }
+            ],
+        },
+        datetime.fromisoformat("2026-06-27T23:15:00-05:00"),
+    )
+
+    assert result.events[0].event_time == "21:30"
+    assert result.events[0].time_was_defaulted is False
+
+
+def test_model_word_time_value_is_normalized_with_entry_context() -> None:
+    result = validate_model_output(
+        "Dinner at eight thirty was rice and chicken",
+        {
+            "entry_classification": "meal",
+            "classification_confidence": 0.8,
+            "events": [
+                {
+                    "type": "meal",
+                    "time": "eight thirty",
+                    "date_offset": 0,
+                    "foods": ["rice", "chicken"],
+                    "confidence": 0.7,
+                }
+            ],
+        },
+        datetime.fromisoformat("2026-06-27T23:15:00-05:00"),
+    )
+
+    assert result.events[0].event_time == "20:30"
+    assert result.events[0].time_was_defaulted is False
+
+
+def test_fallback_parse_uses_explicit_meridiem_time() -> None:
+    result = fallback_parse_result(
+        "I pooped watery around 9:30 pm",
+        datetime.fromisoformat("2026-06-27T23:10:00-05:00"),
+        "No useful events found",
+    )
+
+    assert result.status == "parsed"
+    assert result.events[0].event_time == "21:30"
+    assert result.events[0].time_was_defaulted is False
+
+
 def test_model_drink_list_is_validated_against_known_beverages() -> None:
     result = validate_model_output(
         "I ate all bran buds, milk, banana, and almonds",
