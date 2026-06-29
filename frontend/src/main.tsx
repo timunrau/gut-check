@@ -288,6 +288,19 @@ function formatOptionalDateTime(value: string | null | undefined): string {
   return new Date(value).toLocaleString();
 }
 
+function formatEventTime(value: string): string {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  if (!match) return value;
+
+  const hour = Number(match[1]);
+  const minute = match[2];
+  if (hour < 0 || hour > 23) return value;
+
+  const period = hour < 12 ? "am" : "pm";
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${minute} ${period}`;
+}
+
 function formatBodyBatteryRange(metric: GarminMetric | null | undefined): string {
   if (!metric || metric.body_battery_min === null || metric.body_battery_max === null) return "n/a";
   return `${formatOptionalNumber(metric.body_battery_min)}-${formatOptionalNumber(metric.body_battery_max)}`;
@@ -605,7 +618,7 @@ function EventCard({ item, onDelete }: { item: EventItem; onDelete?: (id: number
     <article className="card event-card">
       <div>
         <div className="event-time">
-          <strong>{item.event_time}</strong>
+          <strong>{formatEventTime(item.event_time)}</strong>
         </div>
         <p>{summary}</p>
         {showNotes && <p className="muted">{item.notes}</p>}
