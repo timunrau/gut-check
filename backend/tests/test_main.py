@@ -48,6 +48,69 @@ def test_create_log_returns_pending_and_schedules_background_parse(tmp_path, mon
     assert log["parser_status"] == "pending"
 
 
+def test_update_event_edits_date_time_and_notes(tmp_path) -> None:
+    database_path = str(tmp_path / "gutcheck.db")
+    init_db(database_path)
+    settings = Settings(
+        app_password="test-password",
+        session_secret="test-secret",
+        database_path=database_path,
+        ollama_url="http://ollama.test",
+        ollama_model="test-model",
+    )
+
+    conn = connect(database_path)
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO raw_logs (
+                raw_text, created_at, parser_status, model_name, parser_error,
+                parsed_json, entry_classification, classification_confidence
+            )
+            VALUES (?, ?, 'parsed', ?, NULL, ?, 'meal', 0.95)
+            """,
+            ("ate rice", "2026-06-26T08:00:00", "test-model", json.dumps({"events": []})),
+        )
+        log_id = cursor.lastrowid
+        cursor = conn.execute(
+            """
+            INSERT INTO events (
+                raw_log_id, event_type, event_date, event_time,
+                time_was_defaulted, notes, confidence, data_json
+            )
+            VALUES (?, 'meal', '2026-06-26', '08:00', 1, NULL, 0.9, ?)
+            """,
+            (log_id, json.dumps({"foods": ["rice"], "drinks": []})),
+        )
+        event_id = cursor.lastrowid
+        conn.commit()
+    finally:
+        conn.close()
+
+    main.app.dependency_overrides[main.settings_dep] = lambda: settings
+    main.app.dependency_overrides[main.protected] = lambda: None
+
+    try:
+        response = TestClient(main.app).patch(
+            f"/api/events/{event_id}",
+            json={
+                "event_date": "2026-06-27",
+                "event_time": "09:15",
+                "notes": "Rice and eggs",
+            },
+        )
+    finally:
+        main.app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["event_date"] == "2026-06-27"
+    assert data["event_time"] == "09:15"
+    assert data["time_was_defaulted"] is False
+    assert data["notes"] == "Rice and eggs"
+    assert data["data"] == {"foods": ["rice"], "drinks": []}
+
+
 def test_patterns_payload_includes_period_events_and_garmin_without_raw_logs(tmp_path, monkeypatch) -> None:
     database_path = str(tmp_path / "gutcheck.db")
     init_db(database_path)

@@ -65,6 +65,8 @@ type DayResponse = {
   garmin: GarminMetric | null;
 };
 
+type EventUpdate = Pick<EventItem, "event_date" | "event_time" | "notes">;
+
 type GarminAverages = {
   avg_steps: number | null;
   avg_sleep_hours: number | null;
@@ -213,6 +215,8 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 function formatEvent(item: EventItem): string {
+  if (item.notes?.trim()) return item.notes.trim();
+
   const data = item.data || {};
   if (item.event_type === "meal") {
     return [...(data.foods || []), ...(data.drinks || []), ...(data.meds || []), ...(data.supplements || [])].join(", ") || item.notes || "Meal";
@@ -611,9 +615,97 @@ function Login({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-function EventCard({ item, onDelete }: { item: EventItem; onDelete?: (id: number) => void }) {
+function EventCard({
+  item,
+  onDelete,
+  onUpdate
+}: {
+  item: EventItem;
+  onDelete?: (id: number) => void;
+  onUpdate?: (id: number, payload: EventUpdate) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [eventDate, setEventDate] = useState(item.event_date);
+  const [eventTime, setEventTime] = useState(item.event_time);
+  const [notes, setNotes] = useState(() => item.notes || formatEvent(item));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
   const summary = formatEvent(item);
   const showNotes = item.notes && item.notes !== summary;
+
+  useEffect(() => {
+    if (editing) return;
+    setEventDate(item.event_date);
+    setEventTime(item.event_time);
+    setNotes(item.notes || formatEvent(item));
+  }, [editing, item]);
+
+  async function save(event: React.FormEvent) {
+    event.preventDefault();
+    if (!onUpdate) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onUpdate(item.id, {
+        event_date: eventDate,
+        event_time: eventTime,
+        notes: notes.trim() || null
+      });
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Update failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <form className="card log-card event-edit-card" onSubmit={save}>
+        <div className="event-edit-grid">
+          <label>
+            <span className="field-label">Date</span>
+            <input
+              id={`event-${item.id}-date`}
+              name={`event-${item.id}-date`}
+              type="date"
+              value={eventDate}
+              onChange={(event) => setEventDate(event.target.value)}
+              required
+            />
+          </label>
+          <label>
+            <span className="field-label">Time</span>
+            <input
+              id={`event-${item.id}-time`}
+              name={`event-${item.id}-time`}
+              type="time"
+              value={eventTime}
+              onChange={(event) => setEventTime(event.target.value)}
+              required
+            />
+          </label>
+        </div>
+        <label>
+          <span className="field-label">Entry</span>
+          <textarea
+            className="compact-textarea"
+            id={`event-${item.id}-notes`}
+            name={`event-${item.id}-notes`}
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            rows={3}
+          />
+        </label>
+        {error && <p className="error">{error}</p>}
+        <div className="action-row">
+          <button className="primary small" disabled={busy || !eventDate || !eventTime}>{busy ? "Saving..." : "Save"}</button>
+          <button className="ghost small" type="button" disabled={busy} onClick={() => setEditing(false)}>Cancel</button>
+        </div>
+      </form>
+    );
+  }
+
   return (
     <article className="card event-card">
       <div>
@@ -623,7 +715,12 @@ function EventCard({ item, onDelete }: { item: EventItem; onDelete?: (id: number
         <p>{summary}</p>
         {showNotes && <p className="muted">{item.notes}</p>}
       </div>
-      {onDelete && <button className="danger small" onClick={() => onDelete(item.id)}>Delete</button>}
+      {(onDelete || onUpdate) && (
+        <div className="event-actions">
+          {onUpdate && <button className="ghost small" onClick={() => setEditing(true)}>Edit</button>}
+          {onDelete && <button className="danger small" onClick={() => onDelete(item.id)}>Delete</button>}
+        </div>
+      )}
     </article>
   );
 }
@@ -707,6 +804,17 @@ function TodayView({ refreshToken }: { refreshToken: number }) {
     setDay(updated);
   }
 
+  async function updateEvent(id: number, payload: EventUpdate) {
+    await apiFetch<EventItem>(`/api/events/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload)
+    });
+    const updatedDate = payload.event_date || dateValue;
+    const updated = await apiFetch<DayResponse>(`/api/day/${updatedDate}`);
+    setDateValue(updatedDate);
+    setDay(updated);
+  }
+
   return (
     <main className="screen">
       <div className="top-row">
@@ -718,7 +826,7 @@ function TodayView({ refreshToken }: { refreshToken: number }) {
         <section className="stack" key={type}>
           <h2>{labels[type]}</h2>
           {day?.groups[type]?.length ? day.groups[type].map((item) => (
-            <EventCard key={item.id} item={item} onDelete={deleteEvent} />
+            <EventCard key={item.id} item={item} onDelete={deleteEvent} onUpdate={updateEvent} />
           )) : <p className="empty">No entries.</p>}
         </section>
       ))}

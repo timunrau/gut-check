@@ -34,6 +34,12 @@ class RawLogRequest(BaseModel):
     raw_text: str
 
 
+class EventUpdateRequest(BaseModel):
+    event_date: str
+    event_time: str
+    notes: str | None = None
+
+
 class FollowupAnswerRequest(BaseModel):
     answer_text: str
 
@@ -444,6 +450,42 @@ def delete_event(event_id: int, conn=Depends(get_conn), _auth: None = Depends(pr
     if cursor.rowcount == 0:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
     return {"deleted": True}
+
+
+@app.patch("/api/events/{event_id}")
+def update_event(
+    event_id: int,
+    payload: EventUpdateRequest,
+    conn=Depends(get_conn),
+    _auth: None = Depends(protected),
+) -> dict[str, Any]:
+    try:
+        date.fromisoformat(payload.event_date)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Use YYYY-MM-DD") from None
+
+    try:
+        parsed_time = time.fromisoformat(payload.event_time)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Use HH:MM") from None
+
+    event_time = parsed_time.replace(second=0, microsecond=0).isoformat(timespec="minutes")
+    notes = payload.notes.strip() if payload.notes else None
+    cursor = conn.execute(
+        """
+        UPDATE events
+        SET event_date = ?,
+            event_time = ?,
+            time_was_defaulted = 0,
+            notes = ?
+        WHERE id = ?
+        """,
+        (payload.event_date, event_time, notes, event_id),
+    )
+    conn.commit()
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    return row_to_dict(conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone())
 
 
 @app.get("/api/followups/open")
